@@ -1,0 +1,672 @@
+<!doctype html>
+<html lang="zh-HK">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0d2a36">
+<title>度尺 現場 RTK</title>
+<style>
+:root{
+  --bg:#f3f5f6; --surface:#ffffff; --ink:#0d1b22; --muted:#4f5f68; --line:#cfd8dd;
+  --accent:#0a6a8c; --accent-ink:#fff;
+  --green:#137a3a; --green-bg:#dff3e5; --amber:#8a5a00; --amber-bg:#fdf0d2; --red:#b3261e; --red-bg:#fbe3e1; --grey:#6b7880; --grey-bg:#e7ecef;
+  --map-bg:#fbfcfc; --str:#7a8a93; --str-on:#0a6a8c; --me:#d9480f;
+  --f-ui:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans TC","PingFang HK",sans-serif;
+  --f-num:ui-monospace,"Roboto Mono","SFMono-Regular",Menlo,monospace;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font:16px/1.4 var(--f-ui);-webkit-text-size-adjust:100%;overscroll-behavior:none}
+button,input,select{font:inherit;color:inherit}
+.num{font-family:var(--f-num);font-variant-numeric:tabular-nums}
+#app{display:flex;flex-direction:column;height:100%;max-width:720px;margin:0 auto;position:relative}
+header{display:flex;align-items:center;gap:8px;padding:10px 12px calc(10px) 12px;padding-top:max(10px,env(safe-area-inset-top));background:#0d2a36;color:#fff}
+header h1{font-size:16px;margin:0;font-weight:700;letter-spacing:.02em;white-space:nowrap}
+header h1 small{font-weight:400;opacity:.7;font-size:12px;margin-left:4px}
+.chip{margin-left:auto;display:flex;align-items:center;gap:6px;border-radius:999px;padding:5px 10px;font-size:13px;font-weight:700;background:var(--grey-bg);color:var(--grey);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:62%}
+.chip i{width:10px;height:10px;border-radius:50%;background:currentColor;flex:none}
+.chip.g{background:var(--green-bg);color:var(--green)} .chip.y{background:var(--amber-bg);color:var(--amber)} .chip.r{background:var(--red-bg);color:var(--red)}
+main{flex:1;overflow:auto;position:relative}
+.view{display:none;padding:12px 12px 90px}
+.view.on{display:block}
+nav{position:absolute;left:0;right:0;bottom:0;display:grid;grid-template-columns:repeat(4,1fr);background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom);z-index:5}
+nav button{border:0;background:none;padding:10px 4px 9px;font-size:13px;font-weight:600;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:2px}
+nav button svg{width:22px;height:22px}
+nav button.on{color:var(--accent)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px}
+.card h2{font-size:14px;margin:0 0 8px;color:var(--muted);font-weight:700;letter-spacing:.02em}
+.big{font-size:30px;font-weight:800;line-height:1.1}
+.mid{font-size:20px;font-weight:700}
+.muted{color:var(--muted)} .small{font-size:13px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.grow{flex:1;min-width:0}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;align-items:baseline}
+.kv dt{color:var(--muted);font-size:14px} .kv dd{margin:0;font-size:18px;font-weight:700}
+.band{display:inline-block;border-radius:8px;padding:2px 10px;font-weight:800;background:var(--accent);color:var(--accent-ink);font-size:22px}
+.warn{border-radius:10px;padding:8px 10px;margin-top:8px;font-weight:700;font-size:15px}
+.warn.r{background:var(--red-bg);color:var(--red)} .warn.y{background:var(--amber-bg);color:var(--amber)} .warn.b{background:var(--grey-bg);color:var(--ink)}
+.foot{font-size:12px;color:var(--muted);text-align:center;margin:8px 0}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:11px 14px;font-weight:700;min-height:46px}
+.btn.p{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.d{color:var(--red)}
+.btn:disabled{opacity:.45}
+.btns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.field{border:1px solid var(--line);border-radius:8px;padding:9px 10px;background:var(--surface);min-height:44px;width:100%}
+label.f{display:block;font-size:13px;color:var(--muted);margin:8px 0 4px}
+canvas#map{width:100%;height:260px;display:block;border-radius:10px;background:var(--map-bg);border:1px solid var(--line);touch-action:none}
+.pts{width:100%;border-collapse:collapse;font-size:15px}
+.pts th{font-size:12px;color:var(--muted);text-align:right;font-weight:600;padding:4px 6px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--surface)}
+.pts td{padding:7px 6px;text-align:right;border-bottom:1px solid var(--line)}
+.pts th:first-child,.pts td:first-child{text-align:left}
+.pts tr.here td{background:var(--amber-bg)}
+.pts tbody tr{cursor:pointer}
+.pts tr.me td{background:var(--green-bg);font-weight:700}
+.rec{border-bottom:1px solid var(--line);padding:8px 0;font-size:14px}
+.rec b{font-size:15px}
+#cam{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;z-index:0;display:none;background:#000}
+body.camon #cam{display:block}
+body.camon main{background:transparent}
+body.camon #v-read .card{background:rgba(10,20,26,.78);color:#fff;border-color:rgba(255,255,255,.18);backdrop-filter:blur(2px)}
+body.camon #v-read .muted,body.camon #v-read .kv dt{color:#c9d6dc}
+body.camon #v-read #mapCard{display:none}
+body.camon #app{z-index:1}
+.hint{font-size:13px;color:var(--muted);margin-top:6px}
+.src{display:grid;gap:8px}
+.src .btn{text-align:left;display:flex;flex-direction:column;align-items:flex-start;gap:2px}
+.src .btn small{font-weight:400;color:var(--muted);font-size:12.5px}
+.toast{position:fixed;left:50%;bottom:86px;transform:translateX(-50%);background:#0d1b22;color:#fff;padding:10px 14px;border-radius:10px;font-size:14px;z-index:20;max-width:92%;display:none}
+.mono-list{font-family:var(--f-num);font-size:13px;white-space:pre-wrap;color:var(--muted)}
+</style>
+</head>
+<body>
+<video id="cam" playsinline muted autoplay></video>
+<div id="app">
+  <header>
+    <h1>度尺 現場<small>原型 v0.2</small></h1>
+    <div class="chip" id="chip"><i></i><span id="chipT">未接位置</span></div>
+  </header>
+  <main>
+    <!-- 讀數 -->
+    <section class="view on" id="v-read">
+      <div class="card" id="linkCard">
+        <div class="muted small" id="linkLine">未有資料：去「設定」匯入 string 表，再揀位置來源。</div>
+        <div class="row" style="margin-top:6px"><div class="big num grow" id="chBig">CH —</div><div class="mid num" id="offTxt"></div></div>
+        <div class="muted small num" id="chSub"></div>
+      </div>
+      <div class="card" id="recCard">
+        <h2 id="recH">紀錄水平（查表）</h2>
+        <dl class="kv num">
+          <dt>GL</dt><dd id="glV">—</dd>
+          <dt>IL</dt><dd id="ilV">—</dd>
+          <dt>深度 GL−IL</dt><dd id="depV">—</dd>
+        </dl>
+        <div style="margin-top:8px" id="bandBox"></div>
+      </div>
+      <div class="card" id="measCard">
+        <h2>實測（RTK，只供參考，唔係驗收）</h2>
+        <dl class="kv num">
+          <dt>量度點 RL</dt><dd id="rlV">—</dd>
+          <dt>到 IL</dt><dd id="toIlV">—</dd>
+          <dt>落到坑底</dt><dd id="cutV">—</dd>
+        </dl>
+        <div class="hint" id="measHint"></div>
+      </div>
+      <div id="warns"></div>
+      <div class="card" id="nbCard"><h2>附近點</h2><div id="nbList" class="num"></div></div>
+      <div class="card" id="mapCard"><h2>平面圖 <span class="muted small" id="mapScale"></span></h2><canvas id="map"></canvas>
+        <div class="row" style="margin-top:8px"><button class="btn grow" id="zoomOut">－ 拉遠</button><button class="btn grow" id="zoomIn">＋ 拉近</button></div></div>
+      <div class="btns">
+        <button class="btn p" id="recBtn">記錄此點</button>
+        <button class="btn" id="camBtn">開鏡頭</button>
+      </div>
+      <button class="btn" id="avgBtn" style="width:100%;margin-top:8px">企定平均 30 秒</button>
+      <input class="field" id="recNote" placeholder="備註（例如 peg 號、坑底／坭面）" style="margin-top:8px">
+      <p class="foot">參考資料：唔係 setting-out、唔係 utility clearance、唔係計量紀錄。</p>
+    </section>
+
+    <!-- 點表 -->
+    <section class="view" id="v-pts">
+      <div class="card">
+        <label class="f" for="strSel">String</label>
+        <select class="field" id="strSel"></select>
+        <div class="hint" id="ptsInfo"></div>
+        <div class="hint">企喺有實物嘅點（沙井蓋、valve）上面，撳嗰一行，可以用嚟校正手機 GPS（15 分鐘內有效）。</div>
+      </div>
+      <div class="card" style="padding:0;overflow:auto;max-height:70vh"><table class="pts num" id="ptsTbl"></table></div>
+      <div class="card">
+        <h2>手動 CH（冇 GPS 都用得）</h2>
+        <div class="row"><input class="field grow num" id="manCh" type="number" inputmode="decimal" step="any" placeholder="例如 peg 上寫嘅 CH"><button class="btn p" id="manGo">查</button></div>
+        <div class="hint">輸入測量員釘好嘅 peg 上嘅 CH，即出呢條 string 喺嗰度嘅水平同深度級。</div>
+      </div>
+    </section>
+
+    <!-- 紀錄 -->
+    <section class="view" id="v-recs">
+      <div class="card">
+        <div class="row"><b class="grow" id="recCount">0 點</b><button class="btn" id="recCsv">匯出 CSV</button><button class="btn d" id="recClear">清除</button></div>
+        <div class="hint" id="recStat"></div>
+      </div>
+      <div class="card" id="recList"></div>
+    </section>
+
+    <!-- 設定 -->
+    <section class="view" id="v-set">
+      <div class="card">
+        <h2>1. String 資料</h2>
+        <div class="small" id="dataStat">未匯入</div>
+        <div class="row" style="margin-top:8px"><button class="btn p grow" id="dataImp">匯入 CSV</button><button class="btn" id="dataClr">清除</button></div>
+        <input type="file" id="dataIn" accept=".csv,.txt,text/csv" hidden>
+        <label class="f" for="dataKind">呢份係</label>
+        <select class="field" id="dataKind"><option value="asbuilt">As-built 紀錄（GL、IL 已完成）</option><option value="design">設計（design IL，工程進行中）</option></select>
+        <div class="hint">要有 String、CH、E、N、IL 欄；GL 可以冇。度尺用開嗰份 as-built 水平表（T3 CSV）直接用得。資料只存喺呢部手機。</div>
+      </div>
+      <div class="card">
+        <h2>2. 位置來源</h2>
+        <div class="src">
+          <button class="btn" id="srcSerial">藍牙 receiver（直接讀）<small>receiver 自己接 SatRef（內置 4G／WiFi），手機 Chrome 讀 NMEA；睇到 FIXED／FLOAT</small></button>
+          <button class="btn" id="srcGeo">手機位置（經 Lefebure 等 app 轉）<small>app 接 receiver 同 SatRef，再當手機 GPS 用；冇 app 就係手機自己 GPS</small></button>
+          <button class="btn" id="srcBle">BLE receiver<small>只限用 BLE（Nordic UART／HM-10）嘅自製板</small></button>
+          <button class="btn" id="srcDemo">示範（唔使任何硬件）<small>沿揀咗嘅 string 行，用嚟試個畫面</small></button>
+          <button class="btn d" id="srcStop">停止</button>
+        </div>
+        <div class="hint" id="srcNote"></div>
+        <div class="hint mono-list" id="srcLog"></div>
+      </div>
+      <div class="card">
+        <h2>3. 校核：TBM（RTK）／已知點（手機 GPS）</h2>
+        <div class="small" id="chkStat">今日未做</div>
+        <label class="f" for="tbmSel">揀 TBM</label>
+        <select class="field" id="tbmSel"></select>
+        <div class="btns" style="margin-top:8px"><button class="btn p" id="tbmMeasure">企喺 TBM 量 10 秒</button><button class="btn" id="tbmUse" disabled>用做今日改正</button></div>
+        <label class="row small" style="margin-top:8px"><input type="checkbox" id="applyH"> 平面都套用改正（差超過 5 cm 先考慮）</label>
+        <div class="hint" id="tbmRes"></div>
+        <details style="margin-top:8px"><summary class="small">新增 TBM</summary>
+          <label class="f">名稱</label><input class="field" id="tbmName" placeholder="例如 TBM-3">
+          <div class="row"><div class="grow"><label class="f">E</label><input class="field num" id="tbmE" type="number" inputmode="decimal" step="any"></div><div class="grow"><label class="f">N</label><input class="field num" id="tbmN" type="number" inputmode="decimal" step="any"></div></div>
+          <label class="f">RL（mPD）</label><input class="field num" id="tbmRL" type="number" inputmode="decimal" step="any">
+          <div class="row" style="margin-top:8px"><button class="btn p grow" id="tbmAdd">加入</button><button class="btn d" id="tbmDel">刪除揀咗嗰個</button></div>
+        </details>
+      </div>
+      <div class="card">
+        <h2>4. 管壁同 bedding（計坑底用）</h2>
+        <div class="small muted" id="pipeFor">String：—</div>
+        <div class="row"><div class="grow"><label class="f" for="wallIn">管壁厚 mm</label><input class="field num" id="wallIn" type="number" inputmode="decimal" step="any" placeholder="冇預設"></div>
+          <div class="grow"><label class="f" for="bedIn">Bedding 厚 mm</label><input class="field num" id="bedIn" type="number" inputmode="decimal" step="any" placeholder="冇預設"></div></div>
+        <div class="hint">坑底（formation）= IL − 管壁 − bedding。數字跟返圖則同 DSD／WSD 標準圖自己入；冇入就只計到 IL。</div>
+      </div>
+      <div class="card">
+        <h2>5. 精度門檻（95% 半徑）</h2>
+        <div class="row"><div class="grow"><label class="f" for="gG">綠：≤ m</label><input class="field num" id="gG" type="number" step="any"></div><div class="grow"><label class="f" for="gY">黃：≤ m</label><input class="field num" id="gY" type="number" step="any"></div></div>
+        <div class="hint">綠色要同時：RTK FIXED（或手機位置 ≤ 綠門檻）＋ 今日 TBM 校核做咗。</div>
+      </div>
+      <p class="foot">度尺 現場 原型 v0.2 · 座標：LandsD 7P_ITRF96_HK80 + HK1980 TM（已用 LandsD 校核點驗算）</p>
+    </section>
+  </main>
+  <nav>
+    <button class="on" data-v="v-read"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>讀數</button>
+    <button data-v="v-pts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>點表</button>
+    <button data-v="v-recs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h9l3 3v15H6z"/><path d="M9 12h6M9 16h6"/></svg>紀錄</button>
+    <button data-v="v-set"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>設定</button>
+  </nav>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+// ITRF96 / WGS84 lat-lon-h  →  HK1980 Grid E/N  (LandsD 7P_ITRF96_HK80_V1.0 + HK1980 TM)
+const GEO = (() => {
+  const D2R = Math.PI / 180, S2R = D2R / 3600;
+  const GRS = { a: 6378137, f: 1 / 298.257222101 }, HAY = { a: 6378388, f: 1 / 297 };
+  const e2 = el => el.f * (2 - el.f);
+  function toXYZ(el, lat, lon, h){ const p = lat * D2R, l = lon * D2R, E = e2(el), N = el.a / Math.sqrt(1 - E * Math.sin(p) ** 2);
+    return [(N + h) * Math.cos(p) * Math.cos(l), (N + h) * Math.cos(p) * Math.sin(l), (N * (1 - E) + h) * Math.sin(p)]; }
+  function toLLH(el, [X, Y, Z]){ const E = e2(el), p = Math.hypot(X, Y); let lat = Math.atan2(Z, p * (1 - E)), h = 0;
+    for (let i = 0; i < 8; i++){ const N = el.a / Math.sqrt(1 - E * Math.sin(lat) ** 2); h = p / Math.cos(lat) - N; lat = Math.atan2(Z, p * (1 - E * N / (N + h))); }
+    return [lat / D2R, Math.atan2(Y, X) / D2R, h]; }
+  // coordinate-frame rotation convention (as LandsD's matrix form)
+  const P7 = { tx: 162.619, ty: 276.961, tz: 161.763, rx: 0.067741 * S2R, ry: -2.243649 * S2R, rz: -1.158827 * S2R, s: 1.094239e-6 };
+  function helmert([X, Y, Z], k = P7){ const m = 1 + k.s;
+    return [k.tx + m * (X + k.rz * Y - k.ry * Z), k.ty + m * (-k.rz * X + Y + k.rx * Z), k.tz + m * (k.ry * X - k.rx * Y + Z)]; }
+  // HK1980 Grid: TM on Hayford, origin Partridge Hill, k0 = 1
+  const lat0 = (22 + 18 / 60 + 43.68 / 3600), lon0 = (114 + 10 / 60 + 42.80 / 3600), FE = 836694.05, FN = 819069.80;
+  function merid(el, p){ const E = e2(el), e4 = E * E, e6 = e4 * E;
+    return el.a * ((1 - E / 4 - 3 * e4 / 64 - 5 * e6 / 256) * p - (3 * E / 8 + 3 * e4 / 32 + 45 * e6 / 1024) * Math.sin(2 * p) + (15 * e4 / 256 + 45 * e6 / 1024) * Math.sin(4 * p) - (35 * e6 / 3072) * Math.sin(6 * p)); }
+  const M0 = merid(HAY, lat0 * D2R);
+  function tm(lat, lon){ const el = HAY, E = e2(el), ep = E / (1 - E), p = lat * D2R, N = el.a / Math.sqrt(1 - E * Math.sin(p) ** 2), T = Math.tan(p) ** 2, C = ep * Math.cos(p) ** 2, A = (lon - lon0) * D2R * Math.cos(p);
+    const x = N * (A + (1 - T + C) * A ** 3 / 6 + (5 - 18 * T + T * T + 72 * C - 58 * ep) * A ** 5 / 120);
+    const y = merid(el, p) - M0 + N * Math.tan(p) * (A * A / 2 + (5 - T + 9 * C + 4 * C * C) * A ** 4 / 24 + (61 - 58 * T + T * T + 600 * C - 330 * ep) * A ** 6 / 720);
+    return [FE + x, FN + y]; }
+  // lat/lon/h (ITRF96 ≈ WGS84) → { E, N, h80 } ; h80 = height above the Hayford ellipsoid (not mPD: use a TBM shift)
+  function toHK(lat, lon, h = 0){ const [la, lo, hh] = toLLH(HAY, helmert(toXYZ(GRS, lat, lon, h))); const [E, N] = tm(la, lo); return { E, N, h80: hh }; }
+  return { toHK, M0, tm };
+})();
+if (typeof module !== 'undefined') module.exports = GEO;
+
+/* 度尺 現場 RTK v0.1 — Android Chrome. Data never leaves the phone (localStorage). */
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const f2 = v => v == null || !isFinite(v) ? '—' : (+v).toFixed(2), f3 = v => v == null || !isFinite(v) ? '—' : (+v).toFixed(3), f1 = v => v == null || !isFinite(v) ? '—' : (+v).toFixed(1);
+const store = { get(k, d){ try { const v = localStorage.getItem('dochiRtk:' + k); return v == null ? d : JSON.parse(v); } catch { return d; } }, set(k, v){ try { localStorage.setItem('dochiRtk:' + k, JSON.stringify(v)); return true; } catch { return false; } } };
+let toastT; function toast(t, ms = 3500){ const el = $('toast'); el.textContent = t; el.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(() => el.style.display = 'none', ms); }
+const today = () => new Date().toISOString().slice(0, 10);
+
+// HK SMM bands: ≤1.50, then 1 m steps; a depth exactly on a boundary goes to the lower band
+function bandOf(d){ if (d == null || !isFinite(d)) return null; if (d <= 1.5) return '0.0-1.5m'; const k = Math.ceil(d - 1.5 - 1e-9); return `${(0.5 + k).toFixed(1)}-${(1.5 + k).toFixed(1)}m`; }
+const nearBoundary = d => { if (d == null) return null; const b = d <= 2 ? 1.5 : Math.round(d - 0.5) + 0.5; return Math.abs(d - b); };
+
+/* ---------------- state ---------------- */
+const S = {
+  data: store.get('data', null),            // { name, strings: { ID: [{ch,e,n,gl,il}] } }
+  kind: store.get('kind', 'asbuilt'),
+  tbm: store.get('tbm', []),
+  chk: store.get('chk', null),               // { date, src, tbm, dE, dN, dH, applyH }
+  pipe: store.get('pipe', {}),               // { ID: { wall, bed } } in mm
+  recs: store.get('recs', []),
+  gate: store.get('gate', { g: 0.05, y: 1 }),
+  src: null, fix: null, sel: store.get('sel', ''), zoom: 1, man: null, lastMatch: null,
+};
+
+/* ---------------- data import ---------------- */
+function parseCsv(text){
+  const rows = []; let row = [], cur = '', q = false;
+  for (let i = 0; i < text.length; i++){ const c = text[i];
+    if (q){ if (c === '"'){ if (text[i + 1] === '"'){ cur += '"'; i++; } else q = false; } else cur += c; }
+    else if (c === '"') q = true; else if (c === ','){ row.push(cur); cur = ''; } else if (c === '\n' || c === '\r'){ if (c === '\r' && text[i + 1] === '\n') i++; row.push(cur); rows.push(row); row = []; cur = ''; } else cur += c; }
+  if (cur || row.length){ row.push(cur); rows.push(row); }
+  return rows.map(r => r.map(c => c.replace(/^﻿/, '').trim()));
+}
+function importTable(text, name){
+  const aoa = parseCsv(text), hr = aoa.findIndex(r => r.some(c => /^string$/i.test(c)) && r.some(c => /ch/i.test(c)));
+  if (hr < 0) throw new Error('搵唔到標題列：要有 String 同 CH 欄');
+  const H = aoa[hr].map(c => c.toLowerCase()), col = re => H.findIndex(h => re.test(h));
+  const c = { s: col(/^string$/), ch: col(/(^|\s|-)ch\b|chainage/), e: col(/^e\b|easting/), n: col(/^n\b|northing/), gl: col(/ground|^gl\b|^ogl/), il: col(/invert|^il\b/) };
+  if (c.ch < 0 || c.e < 0 || c.n < 0 || c.il < 0) throw new Error('要有 CH、E、N、Invert Level（IL）欄');
+  const num = v => { const x = parseFloat(String(v ?? '').replace(/,/g, '')); return isFinite(x) ? x : null; };
+  const S2 = {};
+  for (let i = hr + 1; i < aoa.length; i++){ const r = aoa[i], s = (r[c.s] || '').trim(), ch = num(r[c.ch]), e = num(r[c.e]), n = num(r[c.n]); if (!s || ch == null || e == null || n == null) continue;
+    (S2[s] = S2[s] || []).push({ ch, e, n, gl: c.gl >= 0 ? num(r[c.gl]) : null, il: num(r[c.il]) }); }
+  for (const s in S2) S2[s].sort((a, b) => a.ch - b.ch);
+  if (!Object.keys(S2).length) throw new Error('讀唔到任何點');
+  return { name: name.replace(/\.[^.]+$/, ''), strings: S2 };
+}
+$('dataImp').onclick = () => $('dataIn').click();
+$('dataIn').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try { S.data = importTable(await f.text(), f.name); if (!store.set('data', S.data)) toast('手機唔俾儲存，關咗頁要重新匯入', 5000);
+    S.sel = Object.keys(S.data.strings)[0]; store.set('sel', S.sel); refreshAll(); const n = Object.values(S.data.strings).reduce((a, s) => a + s.length, 0); toast(`已匯入 ${Object.keys(S.data.strings).length} 條 string、${n} 點`); }
+  catch (err){ toast(err.message || '讀唔到呢個檔', 5000); }
+};
+$('dataClr').onclick = () => { if (!S.data || !confirm('清除手機入面嘅 string 資料？')) return; S.data = null; store.set('data', null); refreshAll(); };
+$('dataKind').value = S.kind;
+$('dataKind').onchange = () => { S.kind = $('dataKind').value; store.set('kind', S.kind); render(); };
+
+/* ---------------- geometry on the strings ---------------- */
+function project(pts, E, N){
+  let best = null;
+  for (let i = 1; i < pts.length; i++){
+    const a = pts[i - 1], b = pts[i], dx = b.e - a.e, dy = b.n - a.n, L2 = dx * dx + dy * dy;
+    let t = L2 ? ((E - a.e) * dx + (N - a.n) * dy) / L2 : 0; t = Math.max(0, Math.min(1, t));
+    const px = a.e + t * dx, py = a.n + t * dy, off = Math.hypot(E - px, N - py);
+    if (!best || off < best.off){ const side = (dx * (N - a.n) - dy * (E - a.e)) >= 0 ? '左' : '右'; best = { off, ch: a.ch + (b.ch - a.ch) * t, i, t, px, py, side }; }
+  }
+  return best;
+}
+function levelAt(pts, ch){
+  if (!pts.length) return { gl: null, il: null };
+  let i = 1; while (i < pts.length - 1 && pts[i].ch < ch) i++;
+  const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i)], t = b.ch === a.ch ? 0 : Math.max(0, Math.min(1, (ch - a.ch) / (b.ch - a.ch)));
+  const f = k => a[k] == null || b[k] == null ? null : a[k] + (b[k] - a[k]) * t;
+  return { gl: f('gl'), il: f('il') };
+}
+function bandsBetween(pts, c0, c1){
+  const out = new Set(), add = ch => { const l = levelAt(pts, ch); if (l.gl != null && l.il != null) out.add(bandOf(l.gl - l.il)); };
+  add(c0); add(c1); pts.filter(p => p.ch > c0 && p.ch < c1).forEach(p => add(p.ch));
+  return [...out].filter(Boolean);
+}
+function match(E, N, r95){
+  if (!S.data) return null;
+  const all = Object.entries(S.data.strings).map(([id, pts]) => ({ id, pts, ...project(pts, E, N) })).filter(x => x.off != null).sort((a, b) => a.off - b.off);
+  if (!all.length) return null;
+  const [m1, m2] = all; let pick = m1;
+  // a string chosen by hand wins while it is still within reach
+  const pinned = all.find(x => x.id === S.sel && S.pin);
+  if (pinned && pinned.off <= m1.off + 2 * r95 + 0.5) pick = pinned;
+  const amb = m2 && m2.off - m1.off < 2 * r95 ? [m1, m2] : null;
+  return { pick, amb, far: m1.off > 5 + r95 };
+}
+
+/* ---------------- position pipeline ---------------- */
+const PHONE_CAL_MIN = 15;
+function chkValid(){ if (!S.chk || S.chk.date !== today() || S.chk.src !== S.src) return false; if (S.src === 'geo' && Date.now() - (S.chk.at || 0) > PHONE_CAL_MIN * 60000) return false; return true; }
+const calAgeMin = () => S.chk && S.chk.at ? (Date.now() - S.chk.at) / 60000 : null;
+function gateOf(fx){
+  if (!fx) return 'none';
+  if (Date.now() - fx.t > 4000) return 'stale';
+  const r = fx.r95;
+  const fixedOk = fx.q === 'fixed' || fx.q === 'demo' || (fx.q === 'phone' && r <= S.gate.g);
+  if (fixedOk && r <= S.gate.g && (chkValid() || fx.q === 'demo')) return 'g';
+  if (r <= S.gate.y) return 'y';
+  return 'r';
+}
+let pending = false, avgBuf = [];
+function onFix(fx){
+  // fx: { t, lat, lon, h } or { t, E, N, h80 } plus q, r95, rv95, sats, hdop, age
+  if (fx.lat != null){ const g = GEO.toHK(fx.lat, fx.lon, fx.h ?? 0); fx.E = g.E; fx.N = g.N; fx.h80 = fx.h == null ? null : g.h80; }
+  if (tbmRun) tbmRun.push({ ...fx });
+  if (fx.q === 'phone' && S.avg){
+    avgBuf.push({ t: fx.t, E: fx.E, N: fx.N, h80: fx.h80 }); while (avgBuf.length && fx.t - avgBuf[0].t > 30000) avgBuf.shift();
+    if (avgBuf.length >= 2){ const m = k => avgBuf.reduce((a, f) => a + f[k], 0) / avgBuf.length; fx.E = m('E'); fx.N = m('N'); const hs = avgBuf.filter(f => f.h80 != null); if (hs.length) fx.h80 = hs.reduce((a, f) => a + f.h80, 0) / hs.length; fx.avgN = avgBuf.length; }
+  }
+  S.fix = fx;
+  if (!pending){ pending = true; requestAnimationFrame(() => { pending = false; render(); }); }
+}
+function corrected(fx){
+  if (!fx) return null;
+  let E = fx.E, N = fx.N, RL = null;
+  if (chkValid()){ if (S.chk.applyH){ E -= S.chk.dE; N -= S.chk.dN; } if (fx.h80 != null && S.chk.dH != null) RL = fx.h80 + S.chk.dH; }
+  if (fx.q === 'demo' && fx.RL != null) RL = fx.RL;
+  return { E, N, RL };
+}
+
+/* ---- source 1: Bluetooth (classic SPP) receiver through Web Serial, Chrome Android 137+ ---- */
+let serialPort = null, bleDev = null, geoWatch = null, demoT = null, wakeLock = null;
+const SPP = '00001101-0000-1000-8000-00805f9b34fb';
+const nmea = { gga: null, gst: null };
+function nmeaOk(line){ const m = line.match(/^\$([^*]+)\*([0-9A-F]{2})/i); if (!m) return false; let x = 0; for (const ch of m[1]) x ^= ch.charCodeAt(0); return x === parseInt(m[2], 16); }
+const dm = (v, h) => { if (!v) return null; const d = Math.floor(parseFloat(v) / 100), m = parseFloat(v) - d * 100; const r = d + m / 60; return /[SW]/.test(h) ? -r : r; };
+function onNmea(line){
+  line = line.trim(); if (!line.startsWith('$') || !nmeaOk(line)) return;
+  const f = line.split('*')[0].split(','), typ = f[0].slice(3);
+  if (typ === 'GST'){ const sLat = parseFloat(f[6]), sLon = parseFloat(f[7]), sAlt = parseFloat(f[8]); if (isFinite(sLat) && isFinite(sLon)) nmea.gst = { t: Date.now(), sH: Math.hypot(sLat, sLon), sV: isFinite(sAlt) ? sAlt : null }; return; }
+  if (typ !== 'GGA') return;
+  const qn = +f[6]; if (!qn) { S.fix = { t: Date.now(), q: 'nofix', r95: Infinity }; render(); return; }
+  const lat = dm(f[2], f[3]), lon = dm(f[4], f[5]), alt = parseFloat(f[9]), sep = parseFloat(f[11]);
+  const q = { 4: 'fixed', 5: 'float', 2: 'dgnss', 1: 'single' }[qn] || 'single', hdop = parseFloat(f[8]);
+  const g = nmea.gst && Date.now() - nmea.gst.t < 3000 ? nmea.gst : null;
+  const guess = { fixed: 0.015, float: 0.25, dgnss: 0.7, single: 2.5 }[q] * Math.max(1, hdop || 1);
+  const sH = g ? g.sH : guess, sV = g && g.sV != null ? g.sV : sH * 1.8;
+  onFix({ t: Date.now(), lat, lon, h: isFinite(alt) ? alt + (isFinite(sep) ? sep : 0) : null, q, r95: 2 * sH, rv95: 2 * sV, sats: +f[7], hdop, age: f[13] ? parseFloat(f[13]) : null });
+}
+function lineReader(){ let buf = ''; return chunk => { buf += chunk; let k; while ((k = buf.indexOf('\n')) >= 0){ onNmea(buf.slice(0, k)); buf = buf.slice(k + 1); } if (buf.length > 4096) buf = ''; }; }
+async function startSerial(){
+  if (!navigator.serial) return toast('呢個瀏覽器冇 Web Serial：要用 Android Chrome 137 或以上，同埋 HTTPS 網址', 6000);
+  try {
+    await stopAll();
+    const port = await navigator.serial.requestPort({ allowedBluetoothServiceClassIds: [SPP] });
+    await port.open({ baudRate: 115200 }); serialPort = port; setSrc('serial');
+    log('已連藍牙 receiver（Web Serial）');
+    const dec = new TextDecoder(), feed = lineReader();
+    (async () => { try { const rd = port.readable.getReader(); serialPort.reader = rd; for (;;){ const { value, done } = await rd.read(); if (done) break; feed(dec.decode(value, { stream: true })); } } catch (e){ log('讀取停止：' + (e.message || e)); } })();
+  } catch (e){ if (e && e.name !== 'NotFoundError') toast('連唔到：' + (e.message || e), 6000); log('Serial：' + (e.message || e)); }
+}
+/* ---- source 2: phone location (own GPS, or RTK fed in by Lefebure / Emlid Flow as mock location) ---- */
+function startGeo(){
+  if (!navigator.geolocation) return toast('呢部手機冇定位功能');
+  stopAll().then(() => {
+    setSrc('geo'); log('用手機位置（如果 Lefebure 開咗 mock location，就係 RTK 位置）');
+    geoWatch = navigator.geolocation.watchPosition(p => {
+      const c = p.coords;
+      onFix({ t: Date.now(), lat: c.latitude, lon: c.longitude, h: c.altitude, q: 'phone', r95: c.accuracy, rv95: c.altitudeAccuracy ?? null });
+    }, err => {
+      const why = { 1: '冇俾定位權限：iPhone 設定 → 私隱 → 定位服務 → Safari 網站 → 使用 App 期間，並開「精確位置」', 2: '暫時攞唔到位置', 3: '等位置等咗太耐' }[err.code] || err.message;
+      log('定位：' + why); if (err.code === 1) toast(why, 8000);
+    }, { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 });
+  });
+}
+/* ---- source 3: BLE UART boards (Nordic UART service or HM-10 style) ---- */
+const NUS = '6e400001-b5a3-f393-e0a9-e50e24dcca9e', NUS_TX = '6e400003-b5a3-f393-e0a9-e50e24dcca9e', HM = 0xffe0, HM_C = 0xffe1;
+async function startBle(){
+  if (!navigator.bluetooth) return toast('呢個瀏覽器冇 Web Bluetooth（iPhone 唔支援）', 5000);
+  try {
+    await stopAll();
+    const dev = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [NUS, HM] });
+    const gatt = await dev.gatt.connect(); bleDev = dev; let ch;
+    try { ch = await (await gatt.getPrimaryService(NUS)).getCharacteristic(NUS_TX); } catch { ch = await (await gatt.getPrimaryService(HM)).getCharacteristic(HM_C); }
+    const dec = new TextDecoder(), feed = lineReader();
+    ch.addEventListener('characteristicvaluechanged', e => feed(dec.decode(e.target.value)));
+    await ch.startNotifications(); setSrc('ble'); log('已連 BLE：' + (dev.name || ''));
+    dev.addEventListener('gattserverdisconnected', () => { log('BLE 斷咗線'); toast('Receiver 斷咗線'); });
+  } catch (e){ if (e && e.name !== 'NotFoundError') toast('連唔到 BLE：' + (e.message || e), 6000); log('BLE：' + (e.message || e)); }
+}
+/* ---- source 4: demo along the chosen string ---- */
+const DEMO = (() => { const pts = []; for (let i = 0; i <= 12; i++){ const ch = i * 20; pts.push({ ch, e: 830000 + ch * 0.96, n: 840000 + ch * 0.28, gl: +(20 + 1.2 * Math.sin(i / 2.2)).toFixed(3), il: +(18.4 - ch / 200).toFixed(3) }); } return { name: '示範資料（虛構）', strings: { DEMO: pts } }; })();
+function startDemo(){
+  stopAll().then(() => {
+    if (!S.data){ S.data = DEMO; S.sel = 'DEMO'; refreshAll(); }
+    const id = S.data.strings[S.sel] ? S.sel : Object.keys(S.data.strings)[0], pts = S.data.strings[id];
+    let ch = pts[0].ch, k = 0; setSrc('demo'); log(`示範：沿 ${id} 行，每秒約 1 m`);
+    demoT = setInterval(() => {
+      ch += 1; if (ch > pts[pts.length - 1].ch) ch = pts[0].ch; k++;
+      let i = 1; while (i < pts.length - 1 && pts[i].ch < ch) i++;
+      const a = pts[i - 1], b = pts[i], t = (ch - a.ch) / ((b.ch - a.ch) || 1), dx = b.e - a.e, dy = b.n - a.n, L = Math.hypot(dx, dy) || 1, o = 0.25 + 0.1 * Math.sin(k / 7);
+      const q = k % 40 > 34 ? 'float' : 'fixed', s = q === 'fixed' ? 0.012 : 0.18, j = () => (Math.random() - 0.5) * s;
+      const lv = levelAt(pts, ch);
+      onFix({ t: Date.now(), E: a.e + dx * t - dy / L * o + j(), N: a.n + dy * t + dx / L * o + j(), h80: null, RL: lv.gl != null ? lv.gl - 0.05 + j() : null, q: q === 'fixed' ? 'demo' : 'float', r95: 2 * s, rv95: 4 * s, sats: 24, hdop: 0.7, age: 1 });
+    }, 1000);
+  });
+}
+async function stopAll(){
+  if (serialPort){ try { serialPort.reader && await serialPort.reader.cancel(); } catch {} try { await serialPort.close(); } catch {} serialPort = null; }
+  if (bleDev){ try { bleDev.gatt.disconnect(); } catch {} bleDev = null; }
+  if (geoWatch != null){ navigator.geolocation.clearWatch(geoWatch); geoWatch = null; }
+  if (demoT){ clearInterval(demoT); demoT = null; }
+  S.src = null; S.fix = null; nmea.gga = nmea.gst = null; releaseWake(); render();
+}
+function setSrc(s){ S.src = s; S.man = null; keepAwake(); render(); }
+async function keepAwake(){ try { if ('wakeLock' in navigator && !wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch {} }
+function releaseWake(){ try { wakeLock && wakeLock.release(); } catch {} wakeLock = null; }
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.src) { wakeLock = null; keepAwake(); } });
+const logs = []; function log(t){ logs.unshift(new Date().toLocaleTimeString('zh-HK', { hour12: false }) + '  ' + t); logs.length = Math.min(logs.length, 6); $('srcLog').textContent = logs.join('\n'); }
+$('avgBtn').onclick = () => { S.avg = !S.avg; avgBuf = []; $('avgBtn').textContent = S.avg ? '停止平均' : '企定平均 30 秒'; $('avgBtn').classList.toggle('p', S.avg); toast(S.avg ? '企定唔好郁：位置取最近 30 秒平均' : '已停止平均'); render(); };
+$('srcSerial').onclick = startSerial; $('srcGeo').onclick = startGeo; $('srcBle').onclick = startBle; $('srcDemo').onclick = startDemo; $('srcStop').onclick = () => { stopAll(); log('已停止'); };
+
+/* ---------------- TBM check: occupy a known point for 10 s ---------------- */
+let tbmRun = null, tbmLast = null;
+function renderTbm(){
+  $('tbmSel').innerHTML = S.tbm.length ? S.tbm.map((t, i) => `<option value="${i}">${esc(t.name)}  E ${f3(t.E)}  N ${f3(t.N)}  ${f3(t.RL)} mPD</option>`).join('') : '<option value="">未有 TBM：喺下面新增</option>';
+  const c = S.chk;
+  $('chkStat').innerHTML = chkValid() && S.src === 'geo' ? `<b style="color:var(--green)">手機 GPS 已校正</b>：${esc(c.tbm)}，偏咗 ${f2(Math.hypot(c.dE, c.dN))} m，${Math.max(0, PHONE_CAL_MIN - calAgeMin()).toFixed(0)} 分鐘後要重做` : chkValid() ? `<b style="color:var(--green)">今日已做</b>：${esc(c.tbm)}，高度改正 ${c.dH == null ? '—' : f3(c.dH) + ' m'}，平面差 ${f3(Math.hypot(c.dE, c.dN))} m${c.applyH ? '（已套用）' : ''}` : S.src === 'geo' && c && c.src === 'geo' && c.date === today() ? '手機 GPS 校正過咗 15 分鐘，要重做' : c && c.date === today() ? `今日做過，但位置來源唔同，要重做` : '<b style="color:var(--red)">今日未做</b>：未做之前唔會出實測 RL，亦唔會變綠色';
+  $('applyH').checked = !!(c && c.applyH);
+}
+$('tbmAdd').onclick = () => { const name = $('tbmName').value.trim(), E = +$('tbmE').value, N = +$('tbmN').value, RL = parseFloat($('tbmRL').value);
+  if (!name || !(E > 800000) || !(N > 800000) || !isFinite(RL)) return toast('入齊名稱、E、N（HK1980）同 RL');
+  S.tbm.push({ name, E, N, RL }); store.set('tbm', S.tbm); ['tbmName', 'tbmE', 'tbmN', 'tbmRL'].forEach(i => $(i).value = ''); renderTbm(); $('tbmSel').value = S.tbm.length - 1; };
+$('tbmDel').onclick = () => { const i = +$('tbmSel').value; if (!S.tbm[i] || !confirm(`刪除 ${S.tbm[i].name}？`)) return; S.tbm.splice(i, 1); store.set('tbm', S.tbm); renderTbm(); };
+// occupy a known point and compare: t = { name, E, N, RL | null }; auto = apply straight away (phone GPS, from the point table)
+function measureAt(t, auto){
+  if (!S.src) return toast('先喺「設定」揀位置來源');
+  if (S.src === 'demo') return toast('示範模式唔使校正');
+  if (tbmRun) return toast('量緊，等一等');
+  const secs = S.src === 'geo' ? 15 : 10;
+  tbmRun = []; $('tbmUse').disabled = true; $('tbmMeasure').disabled = true;
+  const msg = `量緊 ${t.name}…企喺點上面唔好郁（${secs} 秒）`; $('tbmRes').textContent = msg; toast(msg, secs * 1000);
+  setTimeout(() => {
+    const run = tbmRun.filter(f => f.E != null); tbmRun = null; $('tbmMeasure').disabled = false;
+    const good = run.filter(f => f.q === 'fixed' || f.q === 'phone');
+    if (good.length < 3){ const m = `收唔夠點（${run.length} 個，可用 ${good.length} 個）。${S.src === 'geo' ? '確認 Safari 有開精確位置，再試。' : '等到 RTK FIXED 先再量。'}`; $('tbmRes').textContent = m; return toast(m, 5000); }
+    const avg = k => good.reduce((a, f) => a + f[k], 0) / good.length, E = avg('E'), N = avg('N'), hs = good.filter(f => f.h80 != null), h80 = hs.length ? hs.reduce((a, f) => a + f.h80, 0) / hs.length : null;
+    const spread = Math.max(...good.map(f => Math.hypot(f.E - E, f.N - N)));
+    tbmLast = { tbm: t.name, dE: E - t.E, dN: N - t.N, dH: h80 == null || t.RL == null ? null : t.RL - h80, n: good.length, spread };
+    // how far off is this point under the correction in use now (a second point checks the first)
+    let vs = '';
+    if (chkValid()){ const c = S.chk, eE = (E - (c.applyH ? c.dE : 0)) - t.E, eN = (N - (c.applyH ? c.dN : 0)) - t.N, eH = h80 == null || t.RL == null || c.dH == null ? null : (h80 + c.dH) - t.RL; vs = `\n用而家嘅改正（${c.tbm}）計，呢點差：平面 ${f2(Math.hypot(eE, eN))} m${eH == null ? '' : `、高度 ${f3(eH)} m`}`; }
+    $('tbmRes').textContent = `${t.name}：${good.length} 個點，跳動 ${f2(spread)} m\n平面差 dE ${f2(tbmLast.dE)}  dN ${f2(tbmLast.dN)}（${f2(Math.hypot(tbmLast.dE, tbmLast.dN))} m）\n高度改正 ${tbmLast.dH == null ? (t.RL == null ? '—（呢點冇已知 RL，只校正平面）' : '冇高度（手機冇提供）') : f3(tbmLast.dH) + ' m'}${vs}`;
+    $('tbmRes').style.whiteSpace = 'pre-wrap';
+    $('tbmUse').disabled = !(tbmLast.dH != null || S.src === 'geo');
+    if (auto && S.src === 'geo') useCal(); else if (auto) toast(`量好：平面差 ${f2(Math.hypot(tbmLast.dE, tbmLast.dN))} m。去「設定 3」撳「用做今日改正」`, 6000);
+  }, secs * 1000);
+}
+function useCal(){
+  if (!tbmLast) return;
+  S.chk = { date: today(), at: Date.now(), src: S.src, tbm: tbmLast.tbm, dE: tbmLast.dE, dN: tbmLast.dN, dH: tbmLast.dH, applyH: S.src === 'geo' ? true : $('applyH').checked };
+  store.set('chk', S.chk); renderTbm(); render();
+  toast(S.src === 'geo' ? `已用 ${tbmLast.tbm} 校正手機 GPS：偏咗 ${f2(Math.hypot(tbmLast.dE, tbmLast.dN))} m，${PHONE_CAL_MIN} 分鐘內有效` : `已用 ${tbmLast.tbm} 做今日改正`, 6000);
+}
+$('tbmMeasure').onclick = () => { const t = S.tbm[+$('tbmSel').value]; if (!t) return toast('先揀或者新增 TBM'); measureAt(t, false); };
+$('tbmUse').onclick = useCal;
+$('applyH').onchange = () => { if (S.chk){ S.chk.applyH = $('applyH').checked; store.set('chk', S.chk); render(); } };
+
+/* ---------------- pipe wall / bedding per string ---------------- */
+function renderPipe(){ const id = S.sel; $('pipeFor').textContent = 'String：' + (id || '—'); const p = S.pipe[id] || {}; $('wallIn').value = p.wall ?? ''; $('bedIn').value = p.bed ?? ''; }
+for (const k of ['wall', 'bed']) $(k + 'In').onchange = () => { if (!S.sel) return; const v = parseFloat($(k + 'In').value); S.pipe[S.sel] = { ...(S.pipe[S.sel] || {}), [k]: isFinite(v) ? v : null }; store.set('pipe', S.pipe); render(); };
+$('gG').value = S.gate.g; $('gY').value = S.gate.y;
+for (const [id, k] of [['gG', 'g'], ['gY', 'y']]) $(id).onchange = () => { const v = parseFloat($(id).value); if (v > 0){ S.gate[k] = v; store.set('gate', S.gate); render(); } };
+
+/* ---------------- main render ---------------- */
+const QTXT = { fixed: 'RTK FIXED', float: 'RTK FLOAT', dgnss: 'DGNSS', single: '單點 GPS', phone: '手機位置', demo: '示範 FIXED', nofix: '冇定位' };
+function render(){
+  const fx = S.fix, gate = S.man ? 'man' : gateOf(fx), chip = $('chip');
+  chip.className = 'chip ' + ({ g: 'g', y: 'y', r: 'r' }[gate] || '');
+  $('chipT').textContent = S.man ? '手動 CH' : !S.src ? '未接位置' : !fx ? '等緊訊號…' : gate === 'stale' ? '訊號中斷' : fx.q === 'nofix' ? '冇定位' : `${QTXT[fx.q]} ±${fx.r95 < 1 ? f2(fx.r95) : f1(fx.r95)} m${fx.sats ? ` · ${fx.sats} 星` : ''}${fx.age != null && fx.q !== 'phone' ? ` · 改正 ${f1(fx.age)}s` : ''}${fx.avgN ? ` · 平均 ${fx.avgN} 點` : ''}${fx.q === 'phone' ? (chkValid() ? ` · 已校正 ${Math.floor(calAgeMin())} 分鐘前` : ' · 未校正') : chkValid() || fx.q === 'demo' ? '' : ' · 未校核'}`;
+  // where are we on which string
+  let m = null, ch = null, pts = null, id = null, off = null, side = '', r95 = fx ? fx.r95 : null;
+  const pos = corrected(fx);
+  if (S.man && S.data && S.data.strings[S.man.id]){ id = S.man.id; pts = S.data.strings[id]; ch = S.man.ch; r95 = 0; }
+  else if (pos && S.data && gate !== 'stale' && fx.q !== 'nofix'){ m = match(pos.E, pos.N, fx.r95); if (m){ id = m.pick.id; pts = m.pick.pts; ch = m.pick.ch; off = m.pick.off; side = m.pick.side; } }
+  S.lastMatch = id ? { id, ch, off, side, pos, gate, r95 } : null;
+  const showRange = gate === 'r' || gate === 'y' && r95 > 0.3;
+  const lab = S.kind === 'design' ? '設計' : '紀錄';
+  if (!S.data){ $('linkLine').textContent = '未有資料：去「設定」匯入 string 表，或者揀「示範」。'; }
+  else if (!id){ $('linkLine').textContent = S.src ? (fx ? '附近冇 string' : '等緊位置…') : '揀位置來源（設定），或者喺「點表」入手動 CH'; }
+  else {
+    const rng = `${f1(pts[0].ch)}–${f1(pts[pts.length - 1].ch)}`;
+    const mine = S.recs.filter(r => r.string === id && r.gate === 'g' && r.off != null), st = mine.length ? ` · 已記錄點離中線 平均 ${f2(mine.reduce((a, r) => a + r.off, 0) / mine.length)} m／最大 ${f2(Math.max(...mine.map(r => r.off)))} m` : '';
+    $('linkLine').innerHTML = `${m && m.far ? '<b style="color:var(--red)">⚠ 唔喺 string 附近</b> · ' : ''}已連 <b>${esc(id)}</b>（${esc(S.data.name)}）CH ${rng}${esc(st)}`;
+  }
+  $('chBig').textContent = ch == null ? 'CH —' : showRange ? `CH ${f1(Math.max(pts[0].ch, ch - r95))}–${f1(Math.min(pts[pts.length - 1].ch, ch + r95))}` : `CH ${f2(ch)}`;
+  $('offTxt').textContent = off == null ? '' : showRange ? '' : `離中線 ${f2(off)} m ${side}`;
+  $('chSub').innerHTML = m && m.amb ? `<b style="color:var(--amber)">有兩條 string 咁近：</b>${m.amb.map(x => `${esc(x.id)}（${f1(x.off)} m）`).join('、')}；喺「點表」揀返啱嘅一條` : pos && !S.man ? `E ${f3(pos.E)}  N ${f3(pos.N)}${off != null && !showRange ? '　（左／右：順 CH 增加方向）' : ''}` : S.man ? '手動 CH（peg）' : '';
+  // record levels at this CH
+  const lv = pts && ch != null ? levelAt(pts, ch) : { gl: null, il: null }, dep = lv.gl != null && lv.il != null ? lv.gl - lv.il : null;
+  $('recH').textContent = `${lab}水平（查表）`;
+  const ab = showRange ? '約 ' : ''; $('glV').textContent = lv.gl == null ? '—' : ab + f3(lv.gl) + ' mPD'; $('ilV').textContent = lv.il == null ? '—' : ab + f3(lv.il) + ' mPD'; $('depV').textContent = dep == null ? '—' : ab + f2(dep) + ' m';
+  let bandHtml = '';
+  if (dep != null){
+    if (showRange && pts){ const bs = bandsBetween(pts, ch - r95, ch + r95); bandHtml = bs.map(b => `<span class="band">${b}</span>`).join(' ') + (bs.length > 1 ? '<div class="hint">位置未夠準，範圍內有幾個深度級</div>' : ''); }
+    else { const nb = nearBoundary(dep); bandHtml = `<span class="band">${bandOf(dep)}</span>${nb != null && nb < 0.15 ? ` <b style="color:var(--amber)">近級界（差 ${f2(nb)} m）</b>` : ''}`; }
+  } else if (lv.il != null) bandHtml = '<span class="muted small">冇 GL，計唔到紀錄深度；用實測 RL</span>';
+  $('bandBox').innerHTML = bandHtml;
+  // measured level (RTK + TBM shift)
+  const RL = pos && pos.RL != null && (gate === 'g' || gate === 'y') ? pos.RL : null, p = S.pipe[id] || {};
+  const form = lv.il != null && p.wall != null && p.bed != null ? lv.il - p.wall / 1000 - p.bed / 1000 : null;
+  $('rlV').textContent = RL == null ? '—' : f3(RL) + ' mPD';
+  $('toIlV').innerHTML = RL == null || lv.il == null ? '—' : `${f2(RL - lv.il)} m <span class="small muted">${bandOf(RL - lv.il)}</span>`;
+  $('cutV').textContent = RL == null || form == null ? '—' : (RL - form >= 0 ? `落 ${f2(RL - form)} m` : `已低過 ${f2(form - RL)} m（超挖？）`);
+  $('measHint').textContent = S.man ? '手動 CH 冇實測水平' : !S.src ? '' : !chkValid() && fx && fx.q !== 'demo' ? '今日未做 TBM 校核：去「設定」做，先有實測 RL' : gate === 'r' ? '位置唔夠準，唔出實測 RL' : form == null && id ? '未入管壁同 bedding（設定 4），只計到 IL' : `坑底 = IL − 管壁 ${p.wall ?? '—'} mm − bedding ${p.bed ?? '—'} mm${fx && fx.rv95 ? ` · 高度 ±${f2(fx.rv95)} m` : ''}`;
+  // warnings
+  const w = [], dd = RL != null && lv.il != null ? RL - lv.il : dep;
+  if (dd != null && dd > 1.2) w.push(['r', `深過 1.2 m：要有支撐（Cap 59I Reg 39），competent person 每 7 日檢查`]);
+  if (gate === 'r' && S.src) w.push(['y', '位置粗略：只可以揾大概位置，唔好當準']);
+  if (m && m.amb) w.push(['y', '附近有另一條 string，確認揀啱先用']);
+  if (S.kind === 'asbuilt') w.push(['b', '紀錄 GL 可能已經改咗；開挖前以墨斗打嘅坭面為準']);
+  w.push(['b', '挖之前：utility CP report、探測同 trial pit。手機唔代替。']);
+  $('warns').innerHTML = w.map(([c, t]) => `<div class="warn ${c}">${esc(t)}</div>`).join('');
+  // neighbouring points
+  if (pts && ch != null){ let i = 1; while (i < pts.length - 1 && pts[i].ch < ch) i++; const nb = [pts[i - 1], pts[i]].filter(Boolean);
+    const line = q => { const d = q.gl != null && q.il != null ? q.gl - q.il : null; return `<div>點 ${pts.indexOf(q) + 1}　CH ${f1(q.ch)}　${d == null ? 'IL ' + f3(q.il) : bandOf(d)}</div>`; };
+    $('nbList').innerHTML = line(nb[0]) + `<div style="color:var(--me);font-weight:700;margin:4px 0">── 你喺呢度 CH ${showRange ? '約 ' + f1(ch) : f2(ch)} ──</div>` + (nb[1] && nb[1] !== nb[0] ? line(nb[1]) : ''); }
+  else $('nbList').textContent = '—';
+  drawMap(pos, id, ch, r95);
+  if (id && !S.pin && id !== S.sel){ S.sel = id; store.set('sel', id); renderPts(); renderPipe(); }
+  else if (document.querySelector('#v-pts.on')) markPts();
+}
+
+/* ---------------- plan view (north up, HK1980 metres) ---------------- */
+const ZOOMS = [5, 10, 20, 50, 100, 250];
+function drawMap(pos, id, ch, r95){
+  const cv = $('map'), dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight; if (!W) return;
+  if (cv.width !== W * dpr){ cv.width = W * dpr; cv.height = H * dpr; }
+  const x = cv.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, W, H);
+  const css = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
+  const rad = ZOOMS[Math.min(ZOOMS.length - 1, S.zoom + 1)] || 20; $('mapScale').textContent = `半徑 ${rad} m · 北向上`;
+  if (!S.data) return;
+  let cE, cN;
+  if (pos){ cE = pos.E; cN = pos.N; } else if (id && ch != null){ const pts = S.data.strings[id]; const q = pts.find(q => q.ch >= ch) || pts[pts.length - 1]; cE = q.e; cN = q.n; } else { const pts = Object.values(S.data.strings)[0]; cE = pts[0].e; cN = pts[0].n; }
+  const sc = Math.min(W, H) / 2 / rad, X = e => W / 2 + (e - cE) * sc, Y = n => H / 2 - (n - cN) * sc;
+  x.lineCap = 'round'; x.lineJoin = 'round'; x.font = '12px ' + css('--f-num');
+  for (const [sid, pts] of Object.entries(S.data.strings)){
+    if (!pts.some(q => Math.abs(q.e - cE) < rad * 3 && Math.abs(q.n - cN) < rad * 3)) continue;
+    const on = sid === id; x.strokeStyle = on ? css('--str-on') : css('--str'); x.lineWidth = on ? 4 : 2;
+    x.beginPath(); pts.forEach((q, i) => i ? x.lineTo(X(q.e), Y(q.n)) : x.moveTo(X(q.e), Y(q.n))); x.stroke();
+    x.fillStyle = x.strokeStyle; let lx = -1e9, ly = -1e9;
+    pts.forEach(q => { if (Math.abs(q.e - cE) > rad * 1.5 || Math.abs(q.n - cN) > rad * 1.5) return; x.beginPath(); x.arc(X(q.e), Y(q.n), on ? 3.5 : 2.5, 0, 7); x.fill();
+      if (on && Math.hypot(X(q.e) - lx, Y(q.n) - ly) > 46){ x.fillText(`CH ${q.ch.toFixed(0)}`, X(q.e) + 5, Y(q.n) - 5); lx = X(q.e); ly = Y(q.n); } });
+    const mid = pts[Math.floor(pts.length / 2)]; if (!on && Math.abs(mid.e - cE) < rad && Math.abs(mid.n - cN) < rad) x.fillText(sid, X(mid.e) + 4, Y(mid.n) + 12);
+  }
+  if (pos){ x.fillStyle = 'rgba(217,72,15,.15)'; x.strokeStyle = css('--me'); x.lineWidth = 1.5; const rr = Math.max(4, (r95 || 0) * sc); x.beginPath(); x.arc(W / 2, H / 2, rr, 0, 7); x.fill(); x.stroke(); x.fillStyle = css('--me'); x.beginPath(); x.arc(W / 2, H / 2, 6, 0, 7); x.fill(); }
+  // scale bar
+  const bar = rad / 2; x.strokeStyle = css('--ink'); x.lineWidth = 2; x.beginPath(); x.moveTo(12, H - 14); x.lineTo(12 + bar * sc, H - 14); x.stroke(); x.fillStyle = css('--ink'); x.fillText(`${bar} m`, 14, H - 20);
+}
+$('zoomIn').onclick = () => { S.zoom = Math.max(-1, S.zoom - 1); render(); };
+$('zoomOut').onclick = () => { S.zoom = Math.min(ZOOMS.length - 2, S.zoom + 1); render(); };
+
+/* ---------------- point table ---------------- */
+function renderPts(){
+  const ids = S.data ? Object.keys(S.data.strings) : [];
+  $('strSel').innerHTML = ids.length ? ids.map(i => `<option${i === S.sel ? ' selected' : ''}>${esc(i)}</option>`).join('') : '<option>未有資料</option>';
+  const pts = S.data && S.data.strings[S.sel];
+  $('ptsInfo').textContent = pts ? `${pts.length} 點 · CH ${f1(pts[0].ch)}–${f1(pts[pts.length - 1].ch)}${S.pin ? ' · 已鎖定（唔會自動轉 string）' : ''}` : '';
+  $('ptsTbl').innerHTML = pts ? `<thead><tr><th>點</th><th>CH</th><th>GL</th><th>IL</th><th>深度</th><th>級別</th></tr></thead><tbody>` + pts.map((q, i) => { const d = q.gl != null && q.il != null ? q.gl - q.il : null; return `<tr data-i="${i}"><td>${i + 1}</td><td>${f1(q.ch)}</td><td>${f3(q.gl)}</td><td>${f3(q.il)}</td><td>${f2(d)}</td><td>${d == null ? '—' : bandOf(d)}</td></tr>`; }).join('') + '</tbody>' : '';
+  markPts(); renderPipe();
+}
+function markPts(){
+  const lm = S.lastMatch, rows = $('ptsTbl').querySelectorAll('tbody tr'); rows.forEach(r => r.className = '');
+  if (!lm || lm.id !== S.sel) return; const pts = S.data.strings[S.sel]; let i = 1; while (i < pts.length - 1 && pts[i].ch < lm.ch) i++;
+  if (rows[i - 1]) rows[i - 1].className = 'here'; if (rows[i]) rows[i].className = 'here';
+}
+$('ptsTbl').addEventListener('click', e => {
+  const tr = e.target.closest('tr[data-i]'); if (!tr || !S.data) return; const i = +tr.dataset.i, q = S.data.strings[S.sel][i];
+  if (!S.src || S.src === 'demo') return toast('先喺「設定」揀「手機位置」，再撳點校正');
+  if (!confirm(`企喺 ${S.sel} 點 ${i + 1}（CH ${f1(q.ch)}）上面，用嚟校正 GPS？\n只揀有實物嘅點，例如沙井蓋、valve。\n要企定 ${S.src === 'geo' ? 15 : 10} 秒。`)) return;
+  measureAt({ name: `${S.sel} 點 ${i + 1}`, E: q.e, N: q.n, RL: null }, true);
+});
+$('strSel').onchange = () => { S.sel = $('strSel').value; S.pin = true; store.set('sel', S.sel); renderPts(); render(); };
+$('manGo').onclick = () => { const v = parseFloat($('manCh').value); if (!S.data || !S.data.strings[S.sel] || !isFinite(v)) return toast('揀 string 同入 CH'); S.man = { id: S.sel, ch: v }; go('v-read'); render(); };
+
+/* ---------------- records ---------------- */
+$('recBtn').onclick = () => {
+  const lm = S.lastMatch, fx = S.fix; if (!lm) return toast('未有位置或者未連 string');
+  const pts = S.data.strings[lm.id], lv = levelAt(pts, lm.ch), p = S.pipe[lm.id] || {}, RL = lm.pos && lm.pos.RL != null && (lm.gate === 'g' || lm.gate === 'y') ? lm.pos.RL : null;
+  const form = lv.il != null && p.wall != null && p.bed != null ? lv.il - p.wall / 1000 - p.bed / 1000 : null;
+  const r = { t: new Date().toISOString(), src: S.man ? 'manual' : S.src, q: S.man ? 'manual' : fx && fx.q, gate: lm.gate, r95: lm.r95, E: lm.pos ? lm.pos.E : null, N: lm.pos ? lm.pos.N : null, RL, string: lm.id, ch: lm.ch, off: lm.off, gl: lv.gl, il: lv.il, dep: lv.gl != null && lv.il != null ? lv.gl - lv.il : null, depNow: RL != null && lv.il != null ? RL - lv.il : null, cut: RL != null && form != null ? RL - form : null, tbm: chkValid() ? S.chk.tbm : '', note: $('recNote').value.trim(), data: S.data.name, kind: S.kind };
+  S.recs.push(r); if (!store.set('recs', S.recs)) toast('儲存唔到（手機空間？）'); $('recNote').value = ''; renderRecs();
+  toast(`已記錄：${r.string} CH ${f2(r.ch)}${r.gate === 'g' ? '' : '（精度未夠，已標明）'}`);
+};
+function renderRecs(){
+  $('recCount').textContent = `${S.recs.length} 點`;
+  $('recStat').textContent = S.recs.length ? `綠色 ${S.recs.filter(r => r.gate === 'g').length} 點；其他精度未夠或者手動` : '喺「讀數」撳「記錄此點」';
+  $('recList').innerHTML = S.recs.length ? S.recs.slice().reverse().map(r => `<div class="rec num"><b>${esc(r.string)} CH ${f2(r.ch)}</b> <span class="small muted">${new Date(r.t).toLocaleString('zh-HK', { hour12: false })}</span><br>${({ g: '綠', y: '黃', r: '紅', man: '手動' })[r.gate] || r.gate} ±${f2(r.r95)} m · RL ${f3(r.RL)} · ${S.kind === 'design' ? '設計' : '紀錄'}深度 ${f2(r.dep)}${r.dep != null ? ' ' + bandOf(r.dep) : ''} · 實測到 IL ${f2(r.depNow)}${r.cut != null ? ' · 落 ' + f2(r.cut) : ''}${r.note ? '<br>' + esc(r.note) : ''}</div>`).join('') : '<div class="muted small">未有紀錄</div>';
+}
+$('recCsv').onclick = () => {
+  if (!S.recs.length) return toast('未有紀錄');
+  const cols = [['時間', 't'], ['來源', 'src'], ['定位', 'q'], ['精度狀態', 'gate'], ['95%半徑 m', 'r95'], ['E', 'E'], ['N', 'N'], ['實測 RL mPD', 'RL'], ['String', 'string'], ['CH', 'ch'], ['離中線 m', 'off'], ['表 GL', 'gl'], ['表 IL', 'il'], ['表深度 GL-IL', 'dep'], ['表深度級別', null], ['實測到 IL m', 'depNow'], ['落到坑底 m', 'cut'], ['TBM', 'tbm'], ['備註', 'note'], ['資料表', 'data'], ['資料類別', 'kind']];
+  const cell = v => { if (v == null) return ''; const s = typeof v === 'number' ? (+v.toFixed(3)).toString() : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const csv = '﻿' + cols.map(c => c[0]).join(',') + '\n' + S.recs.map(r => cols.map(([h, k]) => cell(k ? r[k] : r.dep != null ? bandOf(r.dep) : '')).join(',')).join('\n') + '\n' + '"參考資料：唔係 setting-out、唔係 utility clearance、唔係計量紀錄"\n';
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = `度尺現場紀錄_${today()}.csv`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+};
+$('recClear').onclick = () => { if (!S.recs.length || !confirm(`清除全部 ${S.recs.length} 點紀錄？（建議先匯出 CSV）`)) return; S.recs = []; store.set('recs', S.recs); renderRecs(); };
+
+/* ---------------- camera ---------------- */
+let camStream = null;
+$('camBtn').onclick = async () => {
+  if (camStream){ camStream.getTracks().forEach(t => t.stop()); camStream = null; document.body.classList.remove('camon'); $('camBtn').textContent = '開鏡頭'; return; }
+  try { camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false }); $('cam').srcObject = camStream; document.body.classList.add('camon'); $('camBtn').textContent = '關鏡頭'; }
+  catch (e){ toast('開唔到鏡頭：' + (e.message || e.name), 5000); }
+};
+
+/* ---------------- navigation ---------------- */
+function go(v){ document.querySelectorAll('.view').forEach(s => s.classList.toggle('on', s.id === v)); document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.v === v)); if (v === 'v-pts') renderPts(); if (v === 'v-recs') renderRecs(); if (v === 'v-set'){ renderTbm(); renderPipe(); } if (v === 'v-read') render(); }
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => go(b.dataset.v));
+function refreshAll(){
+  const n = S.data ? Object.values(S.data.strings).reduce((a, s) => a + s.length, 0) : 0;
+  $('dataStat').innerHTML = S.data ? `<b>${esc(S.data.name)}</b>：${Object.keys(S.data.strings).length} 條 string、${n.toLocaleString()} 點` : '未匯入';
+  renderPts(); renderTbm(); renderRecs(); render();
+}
+window.addEventListener('resize', () => render());
+if (!window.isSecureContext) setTimeout(() => toast('呢個網址唔係 HTTPS：鏡頭、定位同藍牙會用唔到', 7000), 600);
+{ const noSer = !navigator.serial, noBle = !navigator.bluetooth; $('srcSerial').hidden = noSer; $('srcBle').hidden = noBle;
+  if (noSer && noBle) $('srcNote').textContent = '呢部機嘅瀏覽器唔支援藍牙 receiver（iPhone 全部唔支援）。用「手機位置」或者「示範」。'; }
+refreshAll();
+
+</script>
+</body>
+</html>
