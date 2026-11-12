@@ -1,0 +1,8 @@
+   *.ply
+   *.las
+   *.laz
+   *.e57
+   *.obj
+   georef.json
+   *_S1a.json
+   *_S1a.txt
