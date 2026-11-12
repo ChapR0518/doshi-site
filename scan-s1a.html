@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<!-- 私隱：connect-src 'none' 令呢頁發唔出任何網絡請求（fetch / XHR / WebSocket），scan 檔只喺部機度讀 -->
+<meta http-equiv="Content-Security-Policy" content="connect-src 'none'">
+<title>度尺 Scan 診斷 S1a v0.1</title>
+<style>
+  :root{--bg:#f6f7f9;--card:#fff;--ink:#1d2330;--mute:#667085;--line:#e3e6ea;--ok:#127a3d;--warn:#b26b00;--bad:#b42318;--acc:#1f5fbf}
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.45 -apple-system,BlinkMacSystemFont,"PingFang HK","Noto Sans TC",sans-serif;background:var(--bg);color:var(--ink)}
+  header{padding:14px 16px 10px;background:#1d2330;color:#fff}
+  header h1{margin:0;font-size:18px}
+  header .sub{font-size:12px;opacity:.75;margin-top:2px}
+  main{padding:12px;max-width:1100px;margin:0 auto}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:12px}
+  .card h2{font-size:15px;margin:0 0 8px}
+  .pick{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  input[type=file]{font-size:14px;max-width:100%}
+  button,select{font-size:14px;padding:8px 12px;border-radius:8px;border:1px solid #c9ced6;background:#fff;color:var(--ink)}
+  button.pri{background:var(--acc);color:#fff;border-color:var(--acc)}
+  button:disabled{opacity:.45}
+  .note{font-size:12px;color:var(--mute)}
+  .bar{height:8px;background:#e9ecf1;border-radius:4px;overflow:hidden;margin-top:8px}
+  .bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .15s}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  td,th{border-bottom:1px solid var(--line);padding:5px 6px;text-align:left;vertical-align:top}
+  th{color:var(--mute);font-weight:600;white-space:nowrap}
+  td.num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+  .tag{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600}
+  .t-ok{background:#e3f4ea;color:var(--ok)} .t-warn{background:#fff3dd;color:var(--warn)} .t-bad{background:#fde7e5;color:var(--bad)} .t-info{background:#e7effb;color:var(--acc)}
+  pre{background:#0f1420;color:#d7deea;padding:10px;border-radius:8px;overflow:auto;font-size:12px;max-height:260px;white-space:pre-wrap;word-break:break-all}
+  ul.msgs{margin:0;padding-left:18px} ul.msgs li{margin:3px 0}
+  .views{display:grid;grid-template-columns:1fr;gap:10px}
+  @media(min-width:800px){.views{grid-template-columns:1fr 1fr}}
+  .view{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fbfcfd}
+  .view .cap{font-size:12px;color:var(--mute);padding:4px 8px;border-bottom:1px solid var(--line)}
+  canvas{display:block;width:100%;height:260px;touch-action:manipulation}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0}
+  .hide{display:none}
+  .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  #tblPlanes td:last-child{min-width:200px}
+  #tblPlanes td{white-space:nowrap} #tblPlanes td:last-child{white-space:normal}
+  details summary{cursor:pointer;color:var(--acc);font-size:13px;margin:4px 0}
+</style>
+</head>
+<body>
+<header>
+  <h1>度尺 Scan 診斷 S1a</h1>
+  <div class="sub">v0.1 · 12/11/2026 · 開 PLY / LAS 睇 header、點數、坐標同上軸 · 檔案只喺本機讀，唔會上傳</div>
+</header>
+<main>
+
+<section class="card">
+  <h2>1. 揀檔</h2>
+  <div class="pick">
+    <input id="file" type="file" multiple>
+    <button id="btnRun" class="pri" disabled>開始診斷</button>
+  </div>
+  <p class="note">支援：PLY（ascii / binary）、LAS 1.0–1.4（未壓縮）。可以同時揀 <code>georef.json</code>（OpenSurvey3D）一齊睇。LAZ、E57 呢版唔解。
+  iPhone：喺「檔案」App 揀「我的 iPhone」入面嘅檔，唔好揀 iCloud 未下載嘅檔。</p>
+  <div class="bar"><i id="prog"></i></div>
+  <div id="progTxt" class="note"></div>
+</section>
+
+<section id="secSummary" class="card hide">
+  <h2>2. 結論</h2>
+  <ul id="msgs" class="msgs"></ul>
+</section>
+
+<section id="secHeader" class="card hide">
+  <h2>3. Header</h2>
+  <table id="tblHeader"></table>
+  <details><summary>原文 / VLR / georef.json</summary><pre id="rawHeader"></pre></details>
+</section>
+
+<section id="secStats" class="card hide">
+  <h2>4. 點數同坐標範圍</h2>
+  <table id="tblCount"></table>
+  <div style="height:8px"></div>
+  <table id="tblAxes"></table>
+  <div style="height:8px"></div>
+  <table id="tblAttr"></table>
+</section>
+
+<section id="secUp" class="card hide">
+  <h2>5. 上軸估計</h2>
+  <p class="note">方法：用抽樣點搵 3 塊最大嘅平面（RANSAC）；平面 normal 貼近某個軸（&lt;5°）就係候選。Local 坐標再睇起掃點（origin）喺平面上面幾高，定正負。<b>呢度只係估計，最後由 S1b 用 target fit 決定。</b></p>
+  <div class="scroll"><table id="tblPlanes"></table></div>
+  <div class="row">
+    <label for="selMap"><b>預覽用嘅上軸：</b></label>
+    <select id="selMap"></select>
+    <label><input type="checkbox" id="chkRgb" checked> 用 RGB 顏色</label>
+  </div>
+  <div id="mapNote" class="note"></div>
+</section>
+
+<section id="secView" class="card hide">
+  <h2>6. 預覽（抽樣點）</h2>
+  <p class="note">E′ / N′ 未定向（未知 yaw），只用嚟睇個形啱唔啱：立面同側面應該見到地面係平、坑係向下。睇落倒轉或者企咗起身，就喺上面換上軸。</p>
+  <div class="views">
+    <div class="view"><div class="cap">平面（E′–N′）</div><canvas id="cvPlan"></canvas></div>
+    <div class="view"><div class="cap">立面（E′–H）</div><canvas id="cvElev"></canvas></div>
+    <div class="view"><div class="cap">側面（N′–H）</div><canvas id="cvSide"></canvas></div>
+  </div>
+</section>
+
+<section id="secOut" class="card hide">
+  <h2>7. 匯出診斷記錄</h2>
+  <div class="row">
+    <button id="btnHash">計 SHA-256</button>
+    <button id="btnJson" class="pri">下載診斷 JSON</button>
+    <button id="btnTxt">下載摘要 TXT</button>
+    <button id="btnCopy">複製摘要</button>
+  </div>
+  <div id="hashTxt" class="note"></div>
+  <p class="note">JSON 存晒 header、點數、範圍、上軸證據同你揀嘅上軸，S1b / S3 記錄會用返。Scan 檔同診斷檔都唔好放入 public repo。</p>
+</section>
+
+</main>
+<script>
+"use strict";
+// CORE-START
+const S1A_VERSION = "S1a v0.1";
+const CHUNK = 8 * 1024 * 1024;
+const MAX_SAMPLE = 200000;
+
+const PLY_TYPES = {
+  char:["Int8",1], int8:["Int8",1], uchar:["Uint8",1], uint8:["Uint8",1],
+  short:["Int16",2], int16:["Int16",2], ushort:["Uint16",2], uint16:["Uint16",2],
+  int:["Int32",4], int32:["Int32",4], uint:["Uint32",4], uint32:["Uint32",4],
+  float:["Float32",4], float32:["Float32",4], double:["Float64",8], float64:["Float64",8]
+};
+
+async function readBytes(file, start, end){
+  return new Uint8Array(await file.slice(start, Math.min(end, file.size)).arrayBuffer());
+}
+function latin1(bytes){ let s=""; for(let i=0;i<bytes.length;i++) s+=String.fromCharCode(bytes[i]); return s; }
+
+async function detectFormat(file){
+  const h = latin1(await readBytes(file, 0, 4));
+  if (h === "LASF") return "las";
+  if (h.slice(0,3) === "ply") return "ply";
+  if (h.trim().startsWith("{") || h.trim().startsWith("[")) return "json";
+  return "unknown";
+}
+
+// ---------- PLY ----------
+async function parsePlyHeader(file){
+  let lim = 65536, txt = "", endIdx = -1;
+  while (true){
+    txt = latin1(await readBytes(file, 0, lim));
+    endIdx = txt.indexOf("end_header");
+    if (endIdx >= 0 || lim >= file.size || lim >= 4*1024*1024) break;
+    lim *= 4;
+  }
+  if (endIdx < 0) throw new Error("PLY 搵唔到 end_header");
+  const nl = txt.indexOf("\n", endIdx);
+  if (nl < 0) throw new Error("PLY header 冇完");
+  const headerLen = nl + 1;
+  const raw = txt.slice(0, headerLen);
+  const lines = raw.split(/\r?\n/).map(s=>s.trim()).filter(s=>s.length);
+  const info = {kind:"ply", raw, headerLen, format:null, version:null, comments:[], elements:[]};
+  let cur = null;
+  for (const ln of lines){
+    const t = ln.split(/\s+/);
+    if (t[0]==="format"){ info.format=t[1]; info.version=t[2]; }
+    else if (t[0]==="comment" || t[0]==="obj_info"){ info.comments.push(ln.slice(t[0].length).trim()); }
+    else if (t[0]==="element"){ cur={name:t[1], count:Number(t[2]), props:[]}; info.elements.push(cur); }
+    else if (t[0]==="property" && cur){
+      if (t[1]==="list") cur.props.push({name:t[4], list:true, countType:t[2], itemType:t[3]});
+      else cur.props.push({name:t[2], type:t[1]});
+    }
+  }
+  if (!["ascii","binary_little_endian","binary_big_endian"].includes(info.format)) throw new Error("PLY format 唔識：" + info.format);
+  const vi = info.elements.findIndex(e=>e.name==="vertex");
+  if (vi < 0) throw new Error("PLY 冇 vertex element");
+  const v = info.elements[vi];
+  info.vertexIndex = vi; info.count = v.count;
+  if (v.props.some(p=>p.list)) throw new Error("vertex 有 list property，S1a 唔支援");
+  for (const p of v.props){ if (!PLY_TYPES[p.type]) throw new Error("PLY type 唔識：" + p.type); }
+  let off = 0;
+  for (const p of v.props){ p.offset = off; p.size = PLY_TYPES[p.type][1]; off += p.size; }
+  info.recordSize = off;
+  // binary：計 vertex 之前其他 element 佔幾多 byte
+  info.preBytes = 0; info.preUnknown = false;
+  if (info.format !== "ascii"){
+    for (let i=0;i<vi;i++){
+      const e = info.elements[i];
+      if (e.props.some(p=>p.list)){ info.preUnknown = true; break; }
+      info.preBytes += e.count * e.props.reduce((s,p)=>s+PLY_TYPES[p.type][1],0);
+    }
+    if (info.preUnknown) throw new Error("vertex 之前有 list element，S1a 唔支援");
+  } else if (vi > 0){
+    info.preLines = info.elements.slice(0,vi).reduce((s,e)=>s+e.count,0);
+  }
+  const names = v.props.map(p=>p.name.toLowerCase());
+  const find = (...c)=>{ for (const n of c){ const i=names.indexOf(n); if(i>=0) return i; } return -1; };
+  info.ix = find("x"); info.iy = find("y"); info.iz = find("z");
+  if (info.ix<0||info.iy<0||info.iz<0) throw new Error("PLY vertex 冇齊 x / y / z");
+  info.ir = find("red","r","diffuse_red"); info.ig = find("green","g","diffuse_green"); info.ib = find("blue","b","diffuse_blue");
+  info.iconf = names.findIndex(n=>n.includes("conf"));
+  info.extraProps = v.props.filter((p,i)=>![info.ix,info.iy,info.iz,info.ir,info.ig,info.ib,info.iconf].includes(i)).map(p=>p.name+":"+p.type);
+  info.hasRGB = info.ir>=0 && info.ig>=0 && info.ib>=0;
+  if (info.format !== "ascii"){
+    info.bytesAvail = file.size - headerLen - info.preBytes;
+    info.countByBytes = Math.floor(info.bytesAvail / info.recordSize);
+  }
+  return info;
+}
+
+// ---------- LAS ----------
+const LAS_RGB_OFFSET = {2:20, 3:28, 5:28, 7:30, 8:30, 10:30};
+const LAS_MIN_LEN = {0:20,1:28,2:26,3:34,4:57,5:63,6:30,7:36,8:38,9:59,10:67};
+
+async function parseLasHeader(file){
+  const b = await readBytes(file, 0, 375);
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const str = (o,n)=>latin1(b.slice(o,o+n)).replace(/\0.*$/s,"").trim();
+  const info = {kind:"las"};
+  info.signature = str(0,4);
+  info.fileSourceId = dv.getUint16(4,true);
+  info.globalEncoding = dv.getUint16(6,true);
+  info.versionMajor = b[24]; info.versionMinor = b[25];
+  info.version = info.versionMajor + "." + info.versionMinor;
+  info.systemId = str(26,32);
+  info.software = str(58,32);
+  info.creationDay = dv.getUint16(90,true); info.creationYear = dv.getUint16(92,true);
+  info.headerSize = dv.getUint16(94,true);
+  info.offsetToPoints = dv.getUint32(96,true);
+  info.numVLR = dv.getUint32(100,true);
+  info.pointFormatRaw = b[104];
+  info.compressed = (b[104] & 0xC0) !== 0;
+  info.pointFormat = b[104] & 0x3F;
+  info.recordLength = dv.getUint16(105,true);
+  info.legacyCount = dv.getUint32(107,true);
+  info.scale = [dv.getFloat64(131,true), dv.getFloat64(139,true), dv.getFloat64(147,true)];
+  info.offset = [dv.getFloat64(155,true), dv.getFloat64(163,true), dv.getFloat64(171,true)];
+  info.hdrMax = [dv.getFloat64(179,true), dv.getFloat64(195,true), dv.getFloat64(211,true)];
+  info.hdrMin = [dv.getFloat64(187,true), dv.getFloat64(203,true), dv.getFloat64(219,true)];
+  info.count64 = null;
+  if (info.versionMajor===1 && info.versionMinor>=4 && info.headerSize>=375 && b.length>=255){
+    const lo = dv.getUint32(247,true), hi = dv.getUint32(251,true);
+    info.count64 = hi*4294967296 + lo;
+  }
+  info.count = (info.legacyCount===0 && info.count64) ? info.count64 : (info.legacyCount || info.count64 || 0);
+  info.countByBytes = info.recordLength>0 ? Math.floor((file.size - info.offsetToPoints)/info.recordLength) : 0;
+  info.rgbOffset = LAS_RGB_OFFSET[info.pointFormat];
+  info.hasRGB = info.rgbOffset !== undefined;
+  info.userDataOffset = 17;
+  info.classOffset = info.pointFormat>=6 ? 16 : 15;
+  // VLRs
+  info.vlrs = [];
+  let p = info.headerSize;
+  const vb = await readBytes(file, p, Math.min(info.offsetToPoints, p + 4*1024*1024));
+  const vdv = new DataView(vb.buffer, vb.byteOffset, vb.byteLength);
+  let q = 0;
+  for (let i=0;i<info.numVLR && q+54<=vb.length;i++){
+    const userId = latin1(vb.slice(q+2,q+18)).replace(/\0.*$/s,"");
+    const recId = vdv.getUint16(q+18,true);
+    const len = vdv.getUint16(q+20,true);
+    const desc = latin1(vb.slice(q+22,q+54)).replace(/\0.*$/s,"");
+    const vlr = {userId, recordId:recId, length:len, description:desc};
+    if (recId===2112 && q+54+len<=vb.length) vlr.wkt = latin1(vb.slice(q+54,q+54+len)).replace(/\0+$/,"");
+    if (recId===34735 && q+54+len<=vb.length){
+      const n = vdv.getUint16(q+54+6,true); const keys=[];
+      for (let k=0;k<n && q+54+8+k*8+8<=vb.length;k++){
+        const o=q+54+8+k*8; keys.push({key:vdv.getUint16(o,true), loc:vdv.getUint16(o+2,true), count:vdv.getUint16(o+4,true), value:vdv.getUint16(o+6,true)});
+      }
+      vlr.geoKeys = keys;
+      const pcs = keys.find(k=>k.key===3072); const gcs = keys.find(k=>k.key===2048);
+      if (pcs) vlr.projectedCRS = pcs.value; if (gcs) vlr.geographicCRS = gcs.value;
+    }
+    info.vlrs.push(vlr);
+    q += 54 + len;
+  }
+  info.hasGeoKeys = info.vlrs.some(v=>v.recordId===34735);
+  info.hasWKT = info.vlrs.some(v=>v.recordId===2112);
+  return info;
+}
+
+// ---------- 讀點 ----------
+function newStats(){ return {min:[Infinity,Infinity,Infinity], max:[-Infinity,-Infinity,-Infinity], sum:[0,0,0], n:0, colMax:0, conf:{}, user:{}, nonFinite:0}; }
+function addPoint(st, x,y,z){
+  if (!isFinite(x)||!isFinite(y)||!isFinite(z)){ st.nonFinite++; return false; }
+  if (x<st.min[0])st.min[0]=x; if (x>st.max[0])st.max[0]=x;
+  if (y<st.min[1])st.min[1]=y; if (y>st.max[1])st.max[1]=y;
+  if (z<st.min[2])st.min[2]=z; if (z>st.max[2])st.max[2]=z;
+  st.sum[0]+=x; st.sum[1]+=y; st.sum[2]+=z; st.n++;
+  return true;
+}
+function histAdd(h, v){ const k = String(v); h[k] = (h[k]||0) + 1; }
+function trimHist(h){ const keys=Object.keys(h); if (keys.length>20) return {"(多過 20 個值)": keys.reduce((s,k)=>s+h[k],0)}; return h; }
+
+function makeSample(n){ return {xyz:new Float64Array(3*n), rgb:new Float32Array(3*n), conf:new Int16Array(n).fill(-1), n:0, cap:n}; }
+function pushSample(sm, x,y,z, r,g,b, c){
+  if (sm.n>=sm.cap) return; const i=sm.n++;
+  sm.xyz[3*i]=x; sm.xyz[3*i+1]=y; sm.xyz[3*i+2]=z;
+  sm.rgb[3*i]=r; sm.rgb[3*i+1]=g; sm.rgb[3*i+2]=b; sm.conf[i]=c;
+}
+
+async function scanPly(file, info, onProg){
+  const st = newStats(), N = info.count;
+  const stride = Math.max(1, Math.ceil(N / MAX_SAMPLE));
+  const sm = makeSample(Math.min(MAX_SAMPLE, N));
+  const v = info.elements[info.vertexIndex];
+  if (info.format === "ascii"){
+    const dec = new TextDecoder("latin1");
+    let pos = info.headerLen, carry = "", idx = 0, skip = info.preLines || 0;
+    while (pos < file.size && idx < N){
+      const end = Math.min(file.size, pos + CHUNK);
+      const txt = carry + dec.decode(await file.slice(pos, end).arrayBuffer());
+      pos = end;
+      const lines = txt.split("\n");
+      carry = pos < file.size ? lines.pop() : "";
+      for (const L of lines){
+        const s = L.trim(); if (!s) continue;
+        if (skip>0){ skip--; continue; }
+        if (idx>=N) break;
+        const t = s.split(/\s+/);
+        const x=+t[info.ix], y=+t[info.iy], z=+t[info.iz];
+        const ok = addPoint(st,x,y,z);
+        let r=0,g=0,b=0,c=-1;
+        if (info.hasRGB){ r=+t[info.ir]; g=+t[info.ig]; b=+t[info.ib]; const m=Math.max(r,g,b); if (m>st.colMax) st.colMax=m; }
+        if (info.iconf>=0){ c=+t[info.iconf]; histAdd(st.conf, c); }
+        if (ok && idx % stride === 0) pushSample(sm,x,y,z,r,g,b,c);
+        idx++;
+      }
+      onProg && onProg(Math.min(1, pos/file.size));
+    }
+    if (carry.trim() && idx < N){ /* 最後一行冇換行 */
+      const t = carry.trim().split(/\s+/); const x=+t[info.ix], y=+t[info.iy], z=+t[info.iz];
+      const ok = addPoint(st,x,y,z); let r=0,g=0,b=0,c=-1;
+      if (info.hasRGB){ r=+t[info.ir]; g=+t[info.ig]; b=+t[info.ib]; const m=Math.max(r,g,b); if (m>st.colMax) st.colMax=m; }
+      if (info.iconf>=0){ c=+t[info.iconf]; histAdd(st.conf,c); }
+      if (ok && idx % stride === 0) pushSample(sm,x,y,z,r,g,b,c);
+      idx++;
+    }
+    st.read = idx;
+  } else {
+    const le = info.format === "binary_little_endian";
+    const P = v.props;
+    const get = (dv, o, p)=>dv["get"+PLY_TYPES[p.type][0]](o + p.offset, le);
+    const px=P[info.ix], py=P[info.iy], pz=P[info.iz];
+    const pr=info.hasRGB?P[info.ir]:null, pg=info.hasRGB?P[info.ig]:null, pb=info.hasRGB?P[info.ib]:null;
+    const pc=info.iconf>=0?P[info.iconf]:null;
+    const R = info.recordSize, start = info.headerLen + info.preBytes;
+    const total = Math.min(N, info.countByBytes);
+    const per = Math.max(1, Math.floor(CHUNK / R));
+    let idx = 0;
+    while (idx < total){
+      const nrec = Math.min(per, total - idx);
+      const buf = await file.slice(start + idx*R, start + (idx+nrec)*R).arrayBuffer();
+      const dv = new DataView(buf);
+      for (let k=0;k<nrec;k++, idx++){
+        const o = k*R;
+        const x=get(dv,o,px), y=get(dv,o,py), z=get(dv,o,pz);
+        const ok = addPoint(st,x,y,z);
+        let r=0,g=0,b=0,c=-1;
+        if (pr){ r=get(dv,o,pr); g=get(dv,o,pg); b=get(dv,o,pb); const m=Math.max(r,g,b); if (m>st.colMax) st.colMax=m; }
+        if (pc){ c=get(dv,o,pc); histAdd(st.conf,c); }
+        if (ok && idx % stride === 0) pushSample(sm,x,y,z,r,g,b,c);
+      }
+      onProg && onProg(idx/total);
+    }
+    st.read = idx;
+  }
+  st.conf = trimHist(st.conf);
+  return {stats:st, sample:sm, stride};
+}
+
+async function scanLas(file, info, onProg){
+  const st = newStats();
+  const R = info.recordLength;
+  const total = Math.min(info.count || info.countByBytes, info.countByBytes);
+  const stride = Math.max(1, Math.ceil(total / MAX_SAMPLE));
+  const sm = makeSample(Math.min(MAX_SAMPLE, total));
+  const [sx,sy,sz]=info.scale, [ox,oy,oz]=info.offset;
+  const per = Math.max(1, Math.floor(CHUNK / R));
+  const ro = info.rgbOffset, ud = info.userDataOffset;
+  let idx = 0;
+  while (idx < total){
+    const nrec = Math.min(per, total - idx);
+    const buf = await file.slice(info.offsetToPoints + idx*R, info.offsetToPoints + (idx+nrec)*R).arrayBuffer();
+    const dv = new DataView(buf);
+    for (let k=0;k<nrec;k++, idx++){
+      const o = k*R;
+      const x = dv.getInt32(o,true)*sx + ox, y = dv.getInt32(o+4,true)*sy + oy, z = dv.getInt32(o+8,true)*sz + oz;
+      const ok = addPoint(st,x,y,z);
+      let r=0,g=0,b=0;
+      if (ro!==undefined && o+ro+6<=buf.byteLength){ r=dv.getUint16(o+ro,true); g=dv.getUint16(o+ro+2,true); b=dv.getUint16(o+ro+4,true); const m=Math.max(r,g,b); if (m>st.colMax) st.colMax=m; }
+      const u = dv.getUint8(o+ud); histAdd(st.user, u);
+      if (ok && idx % stride === 0) pushSample(sm,x,y,z,r,g,b,u);
+    }
+    onProg && onProg(idx/total);
+  }
+  st.read = idx;
+  st.user = trimHist(st.user);
+  return {stats:st, sample:sm, stride};
+}
+
+// ---------- 判斷 ----------
+function colourDepth(colMax){ if (colMax<=0) return "冇"; if (colMax<=1.0001) return "0–1 float"; if (colMax<=255) return "8-bit"; return "16-bit"; }
+
+function classifyCoords(st){
+  const [x0,y0,z0]=st.min, [x1,y1,z1]=st.max;
+  const rx=x1-x0, ry=y1-y0, rz=z1-z0;
+  const inR=(v,a,b)=>v>=a&&v<=b;
+  if (inR(x0,-180,180)&&inR(x1,-180,180)&&inR(y0,-90,90)&&inR(y1,-90,90)&&rx<0.01&&ry<0.01&&rz>0.05)
+    return {cls:"lonlat", label:"經緯度（度）", level:"bad", text:"X/Y 似經度/緯度（度），Z 係米：手機 GPS georef（例如 3d Scanner App geo-LAS），精度約 10–15 m，唔可以轉 HK1980。拒收，請改出 local PLY / LAS。"};
+  if (inR(x0,800000,870000)&&inR(x1,800000,870000)&&inR(y0,800000,850000)&&inR(y1,800000,850000))
+    return {cls:"hk1980", label:"似 HK1980 Grid", level:"info", text:"X/Y 喺 HK1980 Grid 範圍（E 800k–870k、N 800k–850k）：已經 georef。照樣要用核對點驗證，唔好直接信。"};
+  if (inR(x0,100000,900000)&&inR(x1,100000,900000)&&inR(y0,1000000,10000000)&&inR(y1,1000000,10000000))
+    return {cls:"utm", label:"似 UTM", level:"warn", text:"X 喺幾十萬、Y 喺幾百萬：似 UTM（香港係 49N / 50N）。要先轉做 HK1980，S1a 唔轉。"};
+  const maxAbs = Math.max(Math.abs(x0),Math.abs(x1),Math.abs(y0),Math.abs(y1),Math.abs(z0),Math.abs(z1));
+  const maxR = Math.max(rx,ry,rz);
+  if (maxAbs<=1000){
+    if (maxR>200) return {cls:"local_mm", label:"local，可能係 mm", level:"warn", text:"坐標喺 ±1,000 內但範圍 >200：如果現場只係十幾米，單位可能係 mm。"};
+    return {cls:"local", label:"local 米", level:"ok", text:"坐標喺 ±1,000 m 內：local 米（多數係起掃點做 origin）。可以喺 S1b 用 target fit 去 HK1980 / mPD。"};
+  }
+  if (maxR>1000 && maxAbs<200000) return {cls:"local_mm", label:"local，可能係 mm", level:"warn", text:"範圍去到幾千至幾萬：如果現場只係十幾米，好可能係 mm。"};
+  return {cls:"unknown", label:"未知", level:"warn", text:"坐標唔似經緯度、HK1980、UTM 或 local 米，要人手睇。"};
+}
+
+function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+
+function symEig3(A){ // Jacobi，A 係 3x3 對稱，回傳最細特徵值嘅特徵向量
+  const a=[[A[0][0],A[0][1],A[0][2]],[A[1][0],A[1][1],A[1][2]],[A[2][0],A[2][1],A[2][2]]];
+  const V=[[1,0,0],[0,1,0],[0,0,1]];
+  for (let sweep=0;sweep<50;sweep++){
+    let off=Math.abs(a[0][1])+Math.abs(a[0][2])+Math.abs(a[1][2]); if (off<1e-15) break;
+    for (const [p,q] of [[0,1],[0,2],[1,2]]){
+      if (Math.abs(a[p][q])<1e-18) continue;
+      const th=(a[q][q]-a[p][p])/(2*a[p][q]);
+      const t=Math.sign(th||1)/(Math.abs(th)+Math.sqrt(th*th+1));
+      const c=1/Math.sqrt(t*t+1), s=t*c;
+      for (let k=0;k<3;k++){ const akp=a[k][p], akq=a[k][q]; a[k][p]=c*akp-s*akq; a[k][q]=s*akp+c*akq; }
+      for (let k=0;k<3;k++){ const apk=a[p][k], aqk=a[q][k]; a[p][k]=c*apk-s*aqk; a[q][k]=s*apk+c*aqk; }
+      for (let k=0;k<3;k++){ const vkp=V[k][p], vkq=V[k][q]; V[k][p]=c*vkp-s*vkq; V[k][q]=s*vkp+c*vkq; }
+    }
+  }
+  let m=0; for (let i=1;i<3;i++) if (a[i][i]<a[m][m]) m=i;
+  const v=[V[0][m],V[1][m],V[2][m]]; const L=Math.hypot(v[0],v[1],v[2]); return v.map(x=>x/L);
+}
+
+function findPlanes(sm, opts){
+  opts = opts || {};
+  const thr = opts.thr || 0.02, maxPlanes = opts.planes || 3, iters = opts.iters || 400;
+  const rnd = mulberry32(12345);
+  const n = sm.n; if (n < 50) return [];
+  // 工作集：最多 30000 點（有 confidence 就優先用 2）
+  let idxs = [];
+  const hasConf = sm.conf[0] !== -1;
+  for (let i=0;i<n;i++){ if (!hasConf || sm.conf[i]>=2) idxs.push(i); }
+  if (idxs.length < 500){ idxs=[]; for (let i=0;i<n;i++) idxs.push(i); }
+  while (idxs.length > 30000){ const j=Math.floor(rnd()*idxs.length); idxs[j]=idxs[idxs.length-1]; idxs.pop(); }
+  const P = sm.xyz, total = idxs.length;
+  // 用中心點做相對坐標，避免大坐標失精度
+  let cx=0,cy=0,cz=0; for (const i of idxs){ cx+=P[3*i]; cy+=P[3*i+1]; cz+=P[3*i+2]; } cx/=total; cy/=total; cz/=total;
+  let rem = idxs.slice();
+  const planes = [];
+  for (let k=0;k<maxPlanes && rem.length>=200;k++){
+    let best=null, bestScore=-1;
+    const evalSet = []; for (let s=0;s<Math.min(3000,rem.length);s++) evalSet.push(rem[Math.floor(rnd()*rem.length)]);
+    for (let it=0; it<iters; it++){
+      const a=rem[Math.floor(rnd()*rem.length)], b=rem[Math.floor(rnd()*rem.length)], c=rem[Math.floor(rnd()*rem.length)];
+      const ax=P[3*a]-cx, ay=P[3*a+1]-cy, az=P[3*a+2]-cz;
+      const ux=P[3*b]-cx-ax, uy=P[3*b+1]-cy-ay, uz=P[3*b+2]-cz-az;
+      const vx=P[3*c]-cx-ax, vy=P[3*c+1]-cy-ay, vz=P[3*c+2]-cz-az;
+      let nx=uy*vz-uz*vy, ny=uz*vx-ux*vz, nz=ux*vy-uy*vx; const L=Math.hypot(nx,ny,nz);
+      if (L<1e-9) continue; nx/=L; ny/=L; nz/=L;
+      const d = nx*ax+ny*ay+nz*az;
+      let sc=0; for (const i of evalSet){ if (Math.abs(nx*(P[3*i]-cx)+ny*(P[3*i+1]-cy)+nz*(P[3*i+2]-cz)-d)<thr) sc++; }
+      if (sc>bestScore){ bestScore=sc; best=[nx,ny,nz,d]; }
+    }
+    if (!best) break;
+    const inl=[], out=[];
+    for (const i of rem){ if (Math.abs(best[0]*(P[3*i]-cx)+best[1]*(P[3*i+1]-cy)+best[2]*(P[3*i+2]-cz)-best[3])<thr) inl.push(i); else out.push(i); }
+    if (inl.length < Math.max(100, 0.03*total)) break;
+    // PCA 精修
+    let mx=0,my=0,mz=0; for (const i of inl){ mx+=P[3*i]; my+=P[3*i+1]; mz+=P[3*i+2]; } mx/=inl.length; my/=inl.length; mz/=inl.length;
+    const C=[[0,0,0],[0,0,0],[0,0,0]];
+    for (const i of inl){ const d=[P[3*i]-mx,P[3*i+1]-my,P[3*i+2]-mz]; for (let r=0;r<3;r++) for (let s=0;s<3;s++) C[r][s]+=d[r]*d[s]; }
+    const nrm = symEig3(C);
+    let rms=0; for (const i of inl){ const e=nrm[0]*(P[3*i]-mx)+nrm[1]*(P[3*i+1]-my)+nrm[2]*(P[3*i+2]-mz); rms+=e*e; } rms=Math.sqrt(rms/inl.length);
+    planes.push({normal:nrm, centroid:[mx,my,mz], inliers:inl.length, frac:inl.length/total, rms});
+    rem = out;
+  }
+  return planes;
+}
+
+const AXIS_MAPS = [
+  {id:"+Y", label:"+Y 向上（ARKit 慣例）", m:[[1,0,0],[0,0,-1],[0,1,0]]},
+  {id:"+Z", label:"+Z 向上（測量 / LAS 慣例）", m:[[1,0,0],[0,1,0],[0,0,1]]},
+  {id:"-Y", label:"−Y 向上", m:[[1,0,0],[0,0,1],[0,-1,0]]},
+  {id:"-Z", label:"−Z 向上", m:[[1,0,0],[0,-1,0],[0,0,-1]]},
+  {id:"+X", label:"+X 向上", m:[[0,1,0],[0,0,1],[1,0,0]]},
+  {id:"-X", label:"−X 向上", m:[[0,-1,0],[0,0,1],[-1,0,0]]}
+];
+function det3(m){ return m[0][0]*(m[1][1]*m[2][2]-m[1][2]*m[2][1]) - m[0][1]*(m[1][0]*m[2][2]-m[1][2]*m[2][0]) + m[0][2]*(m[1][0]*m[2][1]-m[1][1]*m[2][0]); }
+function applyMap(m,x,y,z){ return [m[0][0]*x+m[0][1]*y+m[0][2]*z, m[1][0]*x+m[1][1]*y+m[1][2]*z, m[2][0]*x+m[2][1]*y+m[2][2]*z]; }
+
+function upAxisEvidence(planes, coordCls, kind){
+  if (coordCls==="lonlat") return {rows:[], score:{}, recommended:"+Z", confidence:"低", reason:"經緯度檔 X/Y 係度、Z 係米，平面分析冇意義；跟 LAS 慣例 +Z（呢類檔本身拒收）", profileDefault:"+Z", gravityAligned:false};
+  const axes=["X","Y","Z"];
+  const score={"+X":0,"-X":0,"+Y":0,"-Y":0,"+Z":0,"-Z":0};
+  const rows=[];
+  const local = coordCls==="local" || coordCls==="local_mm";
+  const unit = coordCls==="local_mm" ? 1000 : 1;
+  for (const p of planes){
+    let n = p.normal.slice();
+    let s = null;
+    if (local){ s = -(n[0]*p.centroid[0]+n[1]*p.centroid[1]+n[2]*p.centroid[2]); if (s<0){ n=n.map(v=>-v); s=-s; } }
+    let ai=0; for (let i=1;i<3;i++) if (Math.abs(n[i])>Math.abs(n[ai])) ai=i;
+    const ang = Math.acos(Math.min(1,Math.abs(n[ai])))*180/Math.PI;
+    const sign = n[ai]>=0?"+":"-";
+    const row={normal:n, frac:p.frac, rms:p.rms, axis:axes[ai], angle:ang, originHeight: s===null?null:s/unit, candidate:null, note:""};
+    if (ang<5){
+      if (local){
+        const h=s/unit;
+        row.candidate = sign+axes[ai];
+        if (h>=0.3 && h<=2.5){ score[row.candidate]+=2*p.frac; row.note="起掃點喺平面上 "+h.toFixed(2)+" m：似地面，正負有根據"; }
+        else { score[row.candidate]+=0.5*p.frac; row.note="起掃點離平面 "+h.toFixed(2)+" m（唔喺 0.3–2.5 m）：可能係坑底、牆，或者唔係由地面起掃，只算弱證據"; }
+      } else {
+        // georef：正負靠慣例（Z 向上）
+        row.candidate = "±"+axes[ai];
+        score["+"+axes[ai]] += p.frac; row.note = "georef 檔冇起掃點，正負跟慣例";
+      }
+    } else row.note = "normal 唔貼任何軸（"+ang.toFixed(1)+"°）：斜面，或者個檔冇對齊重力";
+    rows.push(row);
+  }
+  const profileDefault = kind==="ply" && local ? "+Y" : "+Z";
+  let best=null, bestS=0, second=0;
+  for (const k in score){ if (score[k]>bestS){ second=bestS; bestS=score[k]; best=k; } else if (score[k]>second) second=score[k]; }
+  let recommended = profileDefault, confidence="低", reason="冇平面證據，用 App 慣例（PLY local = ARKit +Y；LAS = +Z）";
+  if (best && bestS>=0.15){
+    recommended = best;
+    confidence = (bestS>=0.3 && bestS>=3*second) ? "高" : "中";
+    reason = "平面證據最強："+best+"（分數 "+bestS.toFixed(2)+"，第二 "+second.toFixed(2)+"）";
+  }
+  const aligned = rows.some(r=>r.angle<2);
+  return {rows, score, recommended, confidence, reason, profileDefault, gravityAligned:aligned};
+}
+
+function guessApp(info){
+  const s = ((info.raw||"")+" "+(info.systemId||"")+" "+(info.software||"")+" "+((info.comments||[]).join(" "))).toLowerCase();
+  if (s.includes("opensurvey")) return "OpenSurvey3D";
+  if (s.includes("modelar")) return "Modelar";
+  if (s.includes("3d scanner") || s.includes("laan")) return "3d Scanner App / Laan Labs";
+  if (s.includes("polycam")) return "Polycam";
+  if (s.includes("scaniverse")) return "Scaniverse";
+  if (s.includes("cloudcompare")) return "CloudCompare";
+  return "未認到（睇 header 原文）";
+}
+
+function buildWarnings(info, st, cls){
+  const w=[];
+  if (info.kind==="las"){
+    if (info.compressed) w.push(["bad","LAZ 壓縮（point format bit 7/6 有設）：S1a 唔解，請 App 出未壓縮 LAS 或 PLY。"]);
+    if (info.signature!=="LASF") w.push(["bad","LAS signature 唔係 LASF"]);
+    const minLen = LAS_MIN_LEN[info.pointFormat];
+    if (minLen===undefined) w.push(["bad","Point format "+info.pointFormat+" 唔識"]);
+    else if (info.recordLength<minLen) w.push(["bad","Record length "+info.recordLength+" 細過 format "+info.pointFormat+" 最少 "+minLen+" byte"]);
+    if (info.count && info.countByBytes!==info.count) w.push(["warn","Header 點數 "+info.count.toLocaleString()+" ≠ 按檔案大小計 "+info.countByBytes.toLocaleString()+"（檔尾可能有 EVLR，或者檔案唔完整）"]);
+    if (info.versionMajor===1 && info.versionMinor>=4) w.push(["info","LAS 1.4：64-bit 點數 offset（@247）係按 spec 推斷，攞到第一個真檔要用 laspy 對一次。"]);
+    if (!info.hasGeoKeys && !info.hasWKT) w.push(["info","LAS 冇 CRS（冇 GeoKey 34735 / WKT 2112）"]);
+    const tol = (a,b,s)=>Math.abs(a-b)<=Math.max(Math.abs(s)*2,1e-6);
+    if (st.n && (!tol(st.min[0],info.hdrMin[0],info.scale[0])||!tol(st.max[0],info.hdrMax[0],info.scale[0])||!tol(st.min[2],info.hdrMin[2],info.scale[2])||!tol(st.max[2],info.hdrMax[2],info.scale[2])))
+      w.push(["warn","Header bounds 同實際點範圍唔夾（只係提示，有啲 App 唔更新 bounds）"]);
+  } else {
+    if (info.format!=="ascii" && info.countByBytes<info.count) w.push(["bad","PLY header 話 "+info.count.toLocaleString()+" 點，但檔案只夠 "+info.countByBytes.toLocaleString()+" 點：檔案唔完整"]);
+    if (st.read!==undefined && st.read<info.count) w.push(["warn","只讀到 "+st.read.toLocaleString()+" / "+info.count.toLocaleString()+" 點"]);
+    if (info.iconf<0) w.push(["info","PLY 冇 confidence property"]);
+  }
+  if (st.nonFinite) w.push(["warn", st.nonFinite.toLocaleString()+" 點係 NaN / Infinity，已跳過"]);
+  if (cls.cls==="lonlat") w.push(["bad", cls.text]);
+  if (st.n===500000) w.push(["info","點數啱啱 500,000：可能撞到 OpenSurvey3D 嘅上限，留意有冇掃漏"]);
+  return w;
+}
+// CORE-END
+
+// ================= UI =================
+const $ = id=>document.getElementById(id);
+const state = {files:[], main:null, info:null, res:null, cls:null, up:null, mapId:null, georef:null, sha256:null, warnings:[]};
+
+$("file").addEventListener("change", e=>{ state.files=[...e.target.files]; $("btnRun").disabled = !state.files.length; });
+$("btnRun").addEventListener("click", run);
+
+function setProg(f, t){ $("prog").style.width=(f*100).toFixed(1)+"%"; if (t!==undefined) $("progTxt").textContent=t; }
+function esc(s){ return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function fmt(v,d=3){ if (v===null||v===undefined||!isFinite(v)) return "—"; return Number(v).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d}); }
+function tag(level, txt){ return '<span class="tag t-'+level+'">'+esc(txt)+'</span>'; }
+function rowsHtml(rows){ return rows.map(r=>"<tr><th>"+esc(r[0])+"</th><td>"+r[1]+"</td></tr>").join(""); }
+
+async function run(){
+  $("btnRun").disabled = true;
+  setProg(0, "開始…");
+  state.sha256=null; $("hashTxt").textContent="";
+  try{
+    state.main=null; state.georef=null;
+    for (const f of state.files){
+      const k = await detectFormat(f);
+      if ((k==="ply"||k==="las") && !state.main) state.main={file:f, kind:k};
+      else if (k==="json" || /\.json$/i.test(f.name)){ try{ state.georef={name:f.name, data:JSON.parse(await f.text())}; }catch(e){ state.georef={name:f.name, error:String(e)}; } }
+    }
+    if (!state.main) throw new Error("揀咗嘅檔入面冇 PLY / LAS（頭 4 個 byte 唔係 ply / LASF）");
+    const f = state.main.file;
+    setProg(0, "讀 header：" + f.name);
+    state.info = state.main.kind==="ply" ? await parsePlyHeader(f) : await parseLasHeader(f);
+    if (state.info.kind==="las" && state.info.compressed){
+      state.res = {stats:newStats(), sample:makeSample(1), stride:1};
+      state.cls = {cls:"unknown", label:"未讀（LAZ）", level:"bad", text:"LAZ 冇讀點"};
+    } else {
+      const t0 = performance.now();
+      state.res = state.main.kind==="ply"
+        ? await scanPly(f, state.info, x=>setProg(x, "讀點… "+(x*100).toFixed(0)+"%"))
+        : await scanLas(f, state.info, x=>setProg(x, "讀點… "+(x*100).toFixed(0)+"%"));
+      state.readSec = (performance.now()-t0)/1000;
+      state.cls = classifyCoords(state.res.stats);
+    }
+    setProg(1, "搵平面…");
+    await new Promise(r=>setTimeout(r,20));
+    const thr = state.cls.cls==="local_mm" ? 20 : 0.02;
+    const planes = state.res.sample.n>=50 ? findPlanes(state.res.sample, {thr}) : [];
+    state.up = upAxisEvidence(planes, state.cls.cls, state.info.kind);
+    state.mapId = state.up.recommended;
+    state.warnings = buildWarnings(state.info, state.res.stats, state.cls);
+    render();
+    setProg(1, "完成：" + f.name + (state.readSec? "（讀點 "+state.readSec.toFixed(1)+" 秒）":""));
+  }catch(err){
+    console.error(err);
+    setProg(0, "出錯：" + err.message);
+    alert("出錯：" + err.message);
+  }finally{
+    $("btnRun").disabled = !state.files.length;
+  }
+}
+
+function render(){
+  const f=state.main.file, info=state.info, st=state.res.stats, cls=state.cls, up=state.up;
+  ["secSummary","secHeader","secStats","secUp","secView","secOut"].forEach(id=>$(id).classList.remove("hide"));
+  // 結論
+  const app = guessApp(info);
+  const m = [];
+  m.push(tag("info","檔案")+" "+esc(f.name)+"（"+fmt(f.size/1048576,1)+" MB），"+(info.kind==="ply"?"PLY "+info.format:"LAS "+info.version+" PDRF "+info.pointFormat)+"，來源估計："+esc(app));
+  m.push(tag(cls.level, "坐標："+cls.label)+" "+esc(cls.text));
+  m.push(tag(up.confidence==="高"?"ok":(up.confidence==="中"?"warn":"info"), "上軸："+up.recommended+"（信心"+up.confidence+"）")+" "+esc(up.reason)+(!up.rows.length?"":up.gravityAligned?"；有平面貼軸 <2°，似已對齊重力（4 參數 fit 有根據）":"；冇平面貼軸 <2°，S1b 可能要用 7 參數 fit"));
+  for (const [lv,t] of state.warnings) if (!(cls.cls==="lonlat" && lv==="bad" && t===cls.text)) m.push(tag(lv, lv==="bad"?"問題":(lv==="warn"?"留意":"資料"))+" "+esc(t));
+  $("msgs").innerHTML = m.map(x=>"<li>"+x+"</li>").join("");
+  // Header
+  let hr=[];
+  if (info.kind==="ply"){
+    hr=[["格式","PLY "+esc(info.format)+" "+esc(info.version||"")],["Header 長度",info.headerLen+" byte"],
+        ["Elements",esc(info.elements.map(e=>e.name+" × "+e.count.toLocaleString()).join("、"))],
+        ["Vertex properties",esc(info.elements[info.vertexIndex].props.map(p=>p.name+":"+p.type).join("  "))],
+        ["每點 byte",info.format==="ascii"?"（ascii）":info.recordSize],
+        ["Confidence",info.iconf>=0?esc(info.elements[info.vertexIndex].props[info.iconf].name):"冇"],
+        ["其他 property",esc(info.extraProps.join("  ")||"冇")],
+        ["Comments",esc(info.comments.join(" | ")||"冇")]];
+    $("rawHeader").textContent = info.raw + (state.georef? "\n\n--- "+state.georef.name+" ---\n"+JSON.stringify(state.georef.data||state.georef.error,null,2):"");
+  } else {
+    hr=[["版本",esc(info.version)],["System ID",esc(info.systemId||"—")],["Generating software",esc(info.software||"—")],
+        ["建立日期",info.creationYear? info.creationYear+" 第 "+info.creationDay+" 日":"—"],
+        ["Header size",info.headerSize],["Offset to points",info.offsetToPoints.toLocaleString()],["VLR 數",info.numVLR],
+        ["Point format",info.pointFormat+(info.compressed?"（LAZ 壓縮）":"")+"（raw byte "+info.pointFormatRaw+"）"],
+        ["Record length",info.recordLength+" byte"],
+        ["Scale X/Y/Z",info.scale.map(v=>v.toPrecision(6)).join(" / ")],["Offset X/Y/Z",info.offset.map(v=>fmt(v,3)).join(" / ")],
+        ["Header bounds X",fmt(info.hdrMin[0])+" – "+fmt(info.hdrMax[0])],["Header bounds Y",fmt(info.hdrMin[1])+" – "+fmt(info.hdrMax[1])],["Header bounds Z",fmt(info.hdrMin[2])+" – "+fmt(info.hdrMax[2])],
+        ["CRS",info.hasGeoKeys||info.hasWKT? esc(info.vlrs.filter(v=>v.projectedCRS||v.geographicCRS||v.wkt).map(v=>v.projectedCRS?"EPSG "+v.projectedCRS:(v.geographicCRS?"Geographic EPSG "+v.geographicCRS:"WKT")).join("、")||"有 GeoKey"):"冇"]];
+    $("rawHeader").textContent = "VLR：\n" + (info.vlrs.length? info.vlrs.map(v=>"- "+v.userId+" #"+v.recordId+" ("+v.length+" byte) "+v.description+(v.wkt?"\n  WKT: "+v.wkt.slice(0,600):"")+(v.geoKeys?"\n  GeoKeys: "+v.geoKeys.map(k=>k.key+"="+k.value).join(", "):"")).join("\n"):"（冇）")
+      + (state.georef? "\n\n--- "+state.georef.name+" ---\n"+JSON.stringify(state.georef.data||state.georef.error,null,2):"");
+  }
+  $("tblHeader").innerHTML = rowsHtml(hr);
+  // 點數
+  const hdrCount = info.count;
+  const byBytes = info.kind==="ply" && info.format==="ascii" ? null : info.countByBytes;
+  $("tblCount").innerHTML = rowsHtml([
+    ["Header 點數", hdrCount.toLocaleString()],
+    ["按檔案大小計", byBytes===null?"（ascii 唔適用）":byBytes.toLocaleString()],
+    ["實際讀到", (st.read||0).toLocaleString()+(st.nonFinite?"（其中 "+st.nonFinite+" 點無效）":"")],
+    ["抽樣", state.res.sample.n.toLocaleString()+" 點（每 "+state.res.stride+" 點取 1）"]
+  ]);
+  const ax=["X","Y","Z"];
+  $("tblAxes").innerHTML = "<tr><th>軸</th><th>min</th><th>max</th><th>range</th><th>平均</th></tr>" +
+    ax.map((a,i)=>"<tr><th>"+a+"</th><td class=num>"+fmt(st.min[i])+"</td><td class=num>"+fmt(st.max[i])+"</td><td class=num>"+fmt(st.max[i]-st.min[i])+"</td><td class=num>"+fmt(st.n?st.sum[i]/st.n:NaN)+"</td></tr>").join("");
+  const confH = info.kind==="ply" ? st.conf : st.user;
+  const confTxt = Object.keys(confH).length ? Object.entries(confH).sort((a,b)=>Number(a[0])-Number(b[0])).map(([k,v])=>k+"："+v.toLocaleString()+"（"+fmt(100*v/(st.read||1),1)+"%）").join("　") : "冇";
+  $("tblAttr").innerHTML = rowsHtml([
+    ["顏色", info.hasRGB ? colourDepth(st.colMax)+"（max "+st.colMax+"）" : "冇"],
+    [info.kind==="ply"?"Confidence 分佈":"User data 分佈（OpenSurvey3D 放 confidence）", esc(confTxt)]
+  ]);
+  // 平面
+  const pr = up.rows.map((r,i)=>"<tr><td>"+(i+1)+"</td><td class=num>"+fmt(100*r.frac,1)+"%</td><td class=num>"+fmt(r.rms*1000,1)+"</td><td>"+r.normal.map(v=>v.toFixed(3)).join(", ")+"</td><td>"+r.axis+"（"+r.angle.toFixed(1)+"°）</td><td class=num>"+(r.originHeight===null?"—":fmt(r.originHeight,2))+"</td><td>"+(r.candidate||"—")+"</td><td>"+esc(r.note)+"</td></tr>").join("");
+  $("tblPlanes").innerHTML = "<tr><th>#</th><th>佔點</th><th>RMS mm</th><th>normal</th><th>最近軸</th><th>起掃點高 m</th><th>候選</th><th>備註</th></tr>" + (pr || "<tr><td colspan=8>搵唔到平面</td></tr>");
+  const sel=$("selMap"); sel.innerHTML = AXIS_MAPS.map(a=>'<option value="'+a.id+'">'+esc(a.label)+(a.id===up.recommended?"（建議）":"")+'</option>').join("");
+  sel.value = state.mapId;
+  sel.onchange = ()=>{ state.mapId=sel.value; drawViews(); };
+  $("chkRgb").onchange = drawViews;
+  $("chkRgb").disabled = !info.hasRGB || st.colMax<=0;
+  drawViews();
+}
+
+function heat(t){ // 0..1 藍→綠→黃→紅
+  t=Math.max(0,Math.min(1,t));
+  const r = t<0.5? 0 : (t-0.5)*2*255, g = t<0.5? t*2*255 : 255-(t-0.5)*2*155, b = t<0.5? 255-t*2*255 : 0;
+  return [r|0,g|0,b|0];
+}
+
+function drawViews(){
+  const sm=state.res.sample, n=sm.n, map=AXIS_MAPS.find(a=>a.id===state.mapId);
+  $("mapNote").textContent = "Axis map "+map.id+"：(E′, N′, H) = 矩陣 "+JSON.stringify(map.m)+"，det = "+det3(map.m)+"（必須係 +1，唔會鏡像）";
+  if (!n) return;
+  const st=state.res.stats; const c=[st.sum[0]/st.n, st.sum[1]/st.n, st.sum[2]/st.n];
+  const E=new Float32Array(n), N=new Float32Array(n), H=new Float32Array(n);
+  let mn=[Infinity,Infinity,Infinity], mx=[-Infinity,-Infinity,-Infinity];
+  for (let i=0;i<n;i++){
+    const v=applyMap(map.m, sm.xyz[3*i]-c[0], sm.xyz[3*i+1]-c[1], sm.xyz[3*i+2]-c[2]);
+    E[i]=v[0]; N[i]=v[1]; H[i]=v[2];
+    for (let k=0;k<3;k++){ if (v[k]<mn[k]) mn[k]=v[k]; if (v[k]>mx[k]) mx[k]=v[k]; }
+  }
+  const useRgb = $("chkRgb").checked && state.info.hasRGB && st.colMax>0;
+  const cs = st.colMax<=1.0001?255:(st.colMax<=255?1:1/257);
+  const col = new Uint8Array(3*n);
+  for (let i=0;i<n;i++){
+    let rgb;
+    if (useRgb) rgb=[sm.rgb[3*i]*cs, sm.rgb[3*i+1]*cs, sm.rgb[3*i+2]*cs];
+    else rgb = heat((H[i]-mn[2])/((mx[2]-mn[2])||1));
+    col[3*i]=rgb[0]; col[3*i+1]=rgb[1]; col[3*i+2]=rgb[2];
+  }
+  const unit = state.cls.cls==="local_mm"? "mm" : (state.cls.cls==="lonlat"?"(度/米)":"m");
+  drawOne($("cvPlan"), E, N, null, col, mn[0],mx[0],mn[1],mx[1], "E′","N′", unit, H);
+  drawOne($("cvElev"), E, H, N, col, mn[0],mx[0],mn[2],mx[2], "E′","H", unit, null);
+  drawOne($("cvSide"), N, H, E, col, mn[1],mx[1],mn[2],mx[2], "N′","H", unit, null);
+}
+
+function niceStep(r){ const raw=r/6; const p=Math.pow(10,Math.floor(Math.log10(raw||1))); for (const m of [1,2,5,10]) if (raw<=m*p) return m*p; return 10*p; }
+
+function drawOne(cv, U, V, D, col, u0,u1,v0,v1, lu,lv, unit, depthForPlan){
+  const dpr = Math.min(2, window.devicePixelRatio||1);
+  const W = Math.round(cv.clientWidth*dpr), Hh = Math.round(cv.clientHeight*dpr);
+  if (W<2 || Hh<2) return;
+  cv.width=W; cv.height=Hh;
+  const ctx=cv.getContext("2d"); ctx.fillStyle="#fbfcfd"; ctx.fillRect(0,0,W,Hh);
+  const pad=28*dpr, ru=(u1-u0)||1, rv=(v1-v0)||1;
+  const s=Math.min((W-2*pad)/ru,(Hh-2*pad)/rv);
+  const ox=(W-ru*s)/2, oy=(Hh+rv*s)/2;
+  // 格線
+  const step=niceStep(Math.max(ru,rv));
+  ctx.strokeStyle="#e3e6ea"; ctx.lineWidth=1; ctx.fillStyle="#8a93a3"; ctx.font=(10*dpr)+"px sans-serif";
+  for (let g=Math.ceil(u0/step)*step; g<=u1; g+=step){ const x=ox+(g-u0)*s; ctx.beginPath(); ctx.moveTo(x,pad*0.5); ctx.lineTo(x,Hh-pad*0.5); ctx.stroke(); }
+  for (let g=Math.ceil(v0/step)*step; g<=v1; g+=step){ const y=oy-(g-v0)*s; ctx.beginPath(); ctx.moveTo(pad*0.5,y); ctx.lineTo(W-pad*0.5,y); ctx.stroke(); }
+  ctx.fillText("格 = "+step+" "+unit+"　"+lu+" →　"+lv+" ↑", 6*dpr, Hh-6*dpr);
+  // 點（遠嘅先畫，近嘅後畫；平面圖高嘅後畫）
+  const n=U.length, order=new Uint32Array(n); for (let i=0;i<n;i++) order[i]=i;
+  const key = depthForPlan || D;
+  if (key){ const k=key; order.sort((a,b)=> depthForPlan ? k[a]-k[b] : k[b]-k[a]); }
+  const img=ctx.getImageData(0,0,W,Hh), px=img.data, r=Math.max(1,Math.round(dpr));
+  for (let j=0;j<n;j++){
+    const i=order[j];
+    const x=Math.round(ox+(U[i]-u0)*s), y=Math.round(oy-(V[i]-v0)*s);
+    for (let dy=0;dy<r;dy++) for (let dx=0;dx<r;dx++){
+      const X=x+dx, Y=y+dy; if (X<0||Y<0||X>=W||Y>=Hh) continue;
+      const o=4*(Y*W+X); px[o]=col[3*i]; px[o+1]=col[3*i+1]; px[o+2]=col[3*i+2]; px[o+3]=255;
+    }
+  }
+  ctx.putImageData(img,0,0);
+}
+
+// ---------- 匯出 ----------
+function reportObj(){
+  const f=state.main.file, info=Object.assign({}, state.info); delete info.raw;
+  const st=state.res.stats;
+  return {
+    tool:"度尺 Scan 診斷", version:S1A_VERSION, generatedAt:new Date().toISOString(),
+    file:{name:f.name, size:f.size, lastModified:new Date(f.lastModified).toISOString(), sha256:state.sha256},
+    appGuess:guessApp(state.info), format:state.info.kind, header:info, headerRaw:state.info.raw||null,
+    counts:{header:state.info.count, byBytes:state.info.countByBytes??null, read:st.read, nonFinite:st.nonFinite, sample:state.res.sample.n, stride:state.res.stride},
+    bbox:{min:st.min, max:st.max, mean:st.n?st.sum.map(v=>v/st.n):null},
+    colour:{present:!!state.info.hasRGB, depth:colourDepth(st.colMax), max:st.colMax},
+    confidence: state.info.kind==="ply"? st.conf : null, lasUserData: state.info.kind==="las"? st.user : null,
+    coord:state.cls, upAxis:{recommended:state.up.recommended, confidence:state.up.confidence, reason:state.up.reason, profileDefault:state.up.profileDefault, gravityAligned:state.up.gravityAligned, score:state.up.score, planes:state.up.rows},
+    chosenAxisMap:{id:state.mapId, matrix:AXIS_MAPS.find(a=>a.id===state.mapId).m},
+    georefJson: state.georef ? {name:state.georef.name, data:state.georef.data||null} : null,
+    warnings: state.warnings.map(w=>({level:w[0], text:w[1]})),
+    note:"S1a 只做診斷，冇改過原檔。上軸係估計，最後由 S1b target fit 決定。"
+  };
+}
+function summaryTxt(){
+  const r=reportObj(), st=state.res.stats;
+  const L=[];
+  L.push("度尺 Scan 診斷 "+S1A_VERSION+"　"+r.generatedAt);
+  L.push("檔案："+r.file.name+"（"+r.file.size.toLocaleString()+" byte）"+(r.file.sha256?" SHA-256 "+r.file.sha256:""));
+  L.push("格式："+(state.info.kind==="ply"?"PLY "+state.info.format:"LAS "+state.info.version+" PDRF "+state.info.pointFormat)+"　來源估計："+r.appGuess);
+  L.push("點數：header "+r.counts.header.toLocaleString()+"／讀到 "+(r.counts.read||0).toLocaleString());
+  ["X","Y","Z"].forEach((a,i)=>L.push(a+"："+fmt(st.min[i])+" – "+fmt(st.max[i])+"（range "+fmt(st.max[i]-st.min[i])+"）"));
+  L.push("坐標："+r.coord.label+"　"+r.coord.text);
+  L.push("上軸：建議 "+r.upAxis.recommended+"（信心"+r.upAxis.confidence+"）；揀咗 "+r.chosenAxisMap.id+"；"+r.upAxis.reason);
+  r.warnings.forEach(w=>L.push("["+w.level+"] "+w.text));
+  return L.join("\n");
+}
+function download(name, text, type){
+  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([text],{type})); a.download=name;
+  document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},1500);
+}
+function baseName(){ return state.main.file.name.replace(/\.[^.]+$/,""); }
+$("btnJson").addEventListener("click", ()=>download(baseName()+"_S1a.json", JSON.stringify(reportObj(),null,2), "application/json"));
+$("btnTxt").addEventListener("click", ()=>download(baseName()+"_S1a.txt", summaryTxt(), "text/plain"));
+$("btnCopy").addEventListener("click", async ()=>{ try{ await navigator.clipboard.writeText(summaryTxt()); $("hashTxt").textContent="已複製摘要"; }catch(e){ $("hashTxt").textContent="複製唔到："+e.message; } });
+$("btnHash").addEventListener("click", async ()=>{
+  const f=state.main.file;
+  if (!(window.crypto && crypto.subtle)){ $("hashTxt").textContent="呢個瀏覽器環境冇 crypto.subtle（要經 https 開，例如 GitHub Pages）"; return; }
+  if (f.size>700*1024*1024){ $("hashTxt").textContent="檔案大過 700 MB，iPhone 好可能爆記憶體：返 office 用電腦計（certutil -hashfile 檔名 SHA256）"; return; }
+  $("hashTxt").textContent="計緊…";
+  try{
+    const h=await crypto.subtle.digest("SHA-256", await f.arrayBuffer());
+    state.sha256=[...new Uint8Array(h)].map(b=>b.toString(16).padStart(2,"0")).join("");
+    $("hashTxt").textContent="SHA-256："+state.sha256;
+  }catch(e){ $("hashTxt").textContent="計唔到："+e.message; }
+});
+window.addEventListener("resize", ()=>{ if (state.res) drawViews(); });
+</script>
+</body>
+</html>

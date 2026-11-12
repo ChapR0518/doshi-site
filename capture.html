@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#000000">
+<title>3D 掃描 · 影相 v1</title>
+<style>
+  :root { --ok:#3ddc84; --warn:#ffcc00; --bad:#ff5252; --fg:#f2f2f2; --dim:#9a9a9a; --bg:#000; --panel:rgba(20,20,20,.78); }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang HK","Noto Sans TC",sans-serif; overflow:hidden; }
+  button { font:inherit; color:inherit; border:0; border-radius:12px; padding:12px 16px; background:#2b2b2b; }
+  button:active { opacity:.7; }
+  button.primary { background:#0a84ff; color:#fff; font-weight:600; }
+  button.danger { background:#5a1d1d; }
+  button.on { background:var(--ok); color:#000; font-weight:600; }
+  [hidden] { display:none !important; }
+  .screen { position:fixed; inset:0; }
+
+  /* start */
+  #start { overflow:auto; padding:calc(env(safe-area-inset-top) + 20px) 20px 40px; }
+  #start h1 { font-size:24px; margin:0 0 6px; }
+  #start p, #start li { color:#cfcfcf; line-height:1.55; font-size:15px; }
+  #start ol { padding-left:20px; }
+  .row { display:flex; gap:10px; align-items:center; margin:12px 0; flex-wrap:wrap; }
+  label { font-size:15px; }
+  select, input[type=number] { font:inherit; padding:8px; border-radius:8px; border:1px solid #444; background:#151515; color:var(--fg); }
+  #resume { color:var(--warn); }
+
+  /* camera */
+  #v { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; background:#000; }
+  #ov { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+  #flash { position:absolute; inset:0; background:#fff; opacity:0; pointer-events:none; transition:opacity .25s; }
+  #hud { position:absolute; left:10px; right:10px; top:calc(env(safe-area-inset-top) + 8px);
+    background:var(--panel); border-radius:12px; padding:8px 12px; font-size:13px; line-height:1.5; }
+  #hud b { font-size:15px; }
+  #msg { font-size:16px; font-weight:600; }
+  .meter { height:6px; background:#333; border-radius:3px; overflow:hidden; margin-top:4px; }
+  .meter > i { display:block; height:100%; width:0; background:var(--ok); }
+  #bar { position:absolute; left:0; right:0; bottom:0; padding:10px 10px calc(env(safe-area-inset-bottom) + 12px);
+    display:flex; gap:8px; justify-content:space-between; align-items:center; background:linear-gradient(transparent,rgba(0,0,0,.75)); }
+  #shutter { width:74px; height:74px; border-radius:50%; background:#fff; border:5px solid #888; padding:0; flex:none; }
+  #bar .side { display:flex; flex-direction:column; gap:8px; flex:1; }
+  #bar .side button { padding:10px 8px; font-size:14px; }
+
+  /* review */
+  #review { display:flex; flex-direction:column; }
+  #review header { padding:calc(env(safe-area-inset-top) + 12px) 14px 10px; background:#111; }
+  #review header h2 { margin:0 0 4px; font-size:19px; }
+  #stats { font-size:14px; color:#cfcfcf; line-height:1.5; }
+  #grid { flex:1; overflow:auto; display:grid; align-content:start; grid-template-columns:repeat(4,1fr); gap:3px; padding:3px; }
+  #grid figure { margin:0; position:relative; }
+  #grid img { width:100%; aspect-ratio:3/4; object-fit:cover; display:block; }
+  #grid figcaption { position:absolute; left:2px; bottom:2px; font-size:10px; background:rgba(0,0,0,.6); padding:1px 4px; border-radius:4px; }
+  #review footer { padding:10px 12px calc(env(safe-area-inset-bottom) + 12px); background:#111; display:flex; flex-direction:column; gap:8px; }
+  #review footer .row { margin:0; }
+  #review footer .row button { flex:1; }
+  #exportState { font-size:14px; color:var(--warn); min-height:1.2em; }
+</style>
+</head>
+<body>
+
+<!-- ============ 開始畫面 ============ -->
+<section id="start" class="screen">
+  <h1>3D 掃描 · 影相</h1>
+  <p>圍住件嘢行三圈，個網頁會喺你行到新角度、部機企定、畫面夠清嘅時候自動影相。影完匯出 ZIP，再交俾電腦用 COLMAP 砌 mesh。</p>
+  <ol>
+    <li>件嘢擺喺有圖案嘅報紙上面，旁邊擺把間尺。</li>
+    <li>光要猛、要柔，唔好開閃光燈，唔好有陽光直射。</li>
+    <li>手機打直（portrait），距離 30–50 cm，件嘢要佔畫面大半。</li>
+    <li>先平視行一圈，再中角度一圈，再由上俯視一圈。之後反轉件嘢，撳「第 2 輪」再影。</li>
+  </ol>
+  <div class="row">
+    <label>每格角度
+      <select id="sectorDeg">
+        <option value="10">10°（每圈 36 張）</option>
+        <option value="15" selected>15°（每圈 24 張）</option>
+        <option value="20">20°（每圈 18 張）</option>
+      </select>
+    </label>
+  </div>
+  <div class="row">
+    <label>JPEG 質素
+      <select id="jpegQ">
+        <option value="0.85">0.85（細檔）</option>
+        <option value="0.92" selected>0.92</option>
+        <option value="0.97">0.97（大檔）</option>
+      </select>
+    </label>
+  </div>
+  <p id="resume" hidden></p>
+  <div class="row">
+    <button class="primary" id="btnStart" style="flex:1">開始（授權相機同動作感應）</button>
+  </div>
+  <div class="row">
+    <button id="btnReviewFromStart" style="flex:1" hidden>睇返已影嘅相 / 匯出</button>
+  </div>
+  <p style="color:var(--dim);font-size:13px">相片只會存喺你部 iPhone 嘅瀏覽器入面（IndexedDB），唔會上傳去任何地方。v1 · 2026-11</p>
+</section>
+
+<!-- ============ 影相畫面 ============ -->
+<section id="cam" class="screen" hidden>
+  <video id="v" playsinline muted autoplay></video>
+  <canvas id="ov"></canvas>
+  <div id="flash"></div>
+  <div id="hud">
+    <div id="msg">準備中…</div>
+    <div><b id="count">0</b> 張 · 第 <span id="passNo">1</span> 輪 · <span id="bandName">—</span> · <span id="res">—</span></div>
+    <div id="bandCounts" style="color:#cfcfcf"></div>
+    <div>清晰度 <span id="sharpTxt">—</span><div class="meter"><i id="sharpBar"></i></div></div>
+    <div class="row" style="margin:6px 0 0">
+      <select id="camSel" style="flex:1;font-size:13px"></select>
+    </div>
+  </div>
+  <div id="bar">
+    <div class="side">
+      <button id="btnAuto" class="on">自動：開</button>
+      <button id="btnPass">反轉件嘢 → 第 2 輪</button>
+    </div>
+    <button id="shutter" aria-label="影相"></button>
+    <div class="side">
+      <button id="btnUndo">刪最後一張</button>
+      <button id="btnDone" class="primary">完成 / 匯出</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 檢查 / 匯出畫面 ============ -->
+<section id="review" class="screen" hidden>
+  <header>
+    <h2>檢查相片</h2>
+    <div id="stats"></div>
+    <div style="font-size:12px;color:var(--dim)">撳一張相可以刪除（例如手震、影到人）。</div>
+  </header>
+  <div id="grid"></div>
+  <footer>
+    <div class="row">
+      <label style="flex:1">參考物實際長度（mm，可留空）
+        <input type="number" id="refLen" inputmode="decimal" placeholder="例如 100" style="width:100%">
+      </label>
+    </div>
+    <div id="exportState"></div>
+    <div class="row">
+      <button id="btnBack">返去繼續影</button>
+      <button id="btnZip" class="primary">整 ZIP</button>
+    </div>
+    <div class="row">
+      <button id="btnShare" class="primary" hidden>分享 / 儲存 ZIP</button>
+    </div>
+    <div class="row">
+      <button id="btnClear" class="danger">清除全部相（開新 scan）</button>
+    </div>
+  </footer>
+</section>
+
+<canvas id="cap" hidden></canvas>
+<canvas id="small" hidden></canvas>
+
+<script>
+'use strict';
+/* =====================================================================
+   3D 掃描 · 影相 v1
+   - getUserMedia 後鏡，揀主鏡頭（「後置相機」/ "Back Camera"），避免自動轉鏡頭
+   - DeviceOrientation：方位角 → 圈上邊一格；俯仰角 beta → 低 / 中 / 高
+   - DeviceMotion：轉動速度，太快唔影
+   - Laplacian variance：清晰度，低過近期中位數 55% 唔影
+   - IndexedDB 存相；自己寫 ZIP（store，唔壓縮）匯出
+   ===================================================================== */
+
+const $ = id => document.getElementById(id);
+const BANDS = ['低（平視）', '中', '高（俯視）'];
+
+const S = {
+  db: null, stream: null, track: null,
+  sectorDeg: 15, jpegQ: 0.92,
+  pass: 1,
+  heading: null, heading0: null, beta: null, rotEMA: 0,
+  orientOK: false, motionOK: false,
+  sharp: 0, sharpHist: [],
+  auto: true, busy: false, lastShot: 0,
+  covered: new Map(),            // key "pass-band-sector" -> count
+  count: 0,
+  audio: null, wakeLock: null,
+  zipFile: null,
+};
+
+/* ---------------- IndexedDB ---------------- */
+function openDB() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('scan3d-capture', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('shots', { keyPath: 'id', autoIncrement: true });
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+function store(mode) { return S.db.transaction('shots', mode).objectStore('shots'); }
+function req(r) { return new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+const dbAdd = rec => req(store('readwrite').add(rec));
+const dbAll = () => req(store('readonly').getAll());
+const dbDel = id => req(store('readwrite').delete(id));
+const dbClear = () => req(store('readwrite').clear());
+const dbCount = () => req(store('readonly').count());
+
+/* ---------------- 開始 ---------------- */
+async function init() {
+  try { S.db = await openDB(); } catch (e) { alert('開唔到瀏覽器儲存（IndexedDB）：' + e); return; }
+  const n = await dbCount();
+  if (n > 0) {
+    $('resume').hidden = false;
+    $('resume').textContent = `上次已經影咗 ${n} 張相未匯出。撳「開始」會接住影；想開新 scan 就先入去清除。`;
+    $('btnReviewFromStart').hidden = false;
+  }
+  if (navigator.storage && navigator.storage.persist) { try { await navigator.storage.persist(); } catch (_) {} }
+}
+
+async function requestSensors() {
+  try {
+    if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) {
+      S.orientOK = (await DeviceOrientationEvent.requestPermission()) === 'granted';
+    } else S.orientOK = 'DeviceOrientationEvent' in window;
+  } catch (_) { S.orientOK = false; }
+  try {
+    if (typeof DeviceMotionEvent !== 'undefined' && DeviceMotionEvent.requestPermission) {
+      S.motionOK = (await DeviceMotionEvent.requestPermission()) === 'granted';
+    } else S.motionOK = 'DeviceMotionEvent' in window;
+  } catch (_) { S.motionOK = false; }
+
+  window.addEventListener('deviceorientation', e => {
+    let h = (typeof e.webkitCompassHeading === 'number') ? e.webkitCompassHeading
+          : (e.alpha != null ? (360 - e.alpha) % 360 : null);
+    if (h == null) return;
+    S.heading = h;
+    if (S.heading0 == null) S.heading0 = h;
+    S.beta = e.beta;
+  });
+  window.addEventListener('devicemotion', e => {
+    const r = e.rotationRate;
+    if (!r) return;
+    const mag = Math.hypot(r.alpha || 0, r.beta || 0, r.gamma || 0);
+    S.rotEMA = S.rotEMA * 0.8 + mag * 0.2;
+  });
+}
+
+async function startCamera(deviceId) {
+  if (S.stream) S.stream.getTracks().forEach(t => t.stop());
+  const size = { width: { ideal: 3840 }, height: { ideal: 2160 } };
+  const video = deviceId ? { deviceId: { exact: deviceId }, ...size } : { facingMode: { ideal: 'environment' }, ...size };
+  S.stream = await navigator.mediaDevices.getUserMedia({ audio: false, video });
+  const v = $('v');
+  v.srcObject = S.stream;
+  await v.play();
+  S.track = S.stream.getVideoTracks()[0];
+  await new Promise(r => { if (v.videoWidth) r(); else v.onloadedmetadata = r; });
+  $('res').textContent = `${v.videoWidth}×${v.videoHeight}`;
+}
+
+// 主鏡頭（1×）嘅名：iOS 會按系統語言改名
+const MAIN_CAM = /^(back camera|後置相機|后置相机|背面カメラ)$/i;
+async function listCameras() {
+  const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+  const sel = $('camSel');
+  sel.innerHTML = '';
+  const cur = S.track && S.track.getSettings().deviceId;
+  for (const d of devs) {
+    const o = document.createElement('option');
+    o.value = d.deviceId;
+    o.textContent = (d.label || '相機') + (MAIN_CAM.test(d.label) ? '（建議）' : '');
+    if (d.deviceId === cur) o.selected = true;
+    sel.appendChild(o);
+  }
+  const main = devs.find(d => MAIN_CAM.test(d.label));
+  return { devs, main, cur };
+}
+
+async function onStart() {
+  S.sectorDeg = +$('sectorDeg').value;
+  S.jpegQ = +$('jpegQ').value;
+  if (!S.audio) { try { S.audio = new (window.AudioContext || window.webkitAudioContext)(); } catch (_) {} }
+  if (!S.sensorsInit) { S.sensorsInit = true; await requestSensors(); }
+  try {
+    await startCamera();
+    const { main, cur } = await listCameras();
+    // 多鏡頭虛擬相機（雙廣角 / 三鏡頭）會自動轉鏡頭，COLMAP 會亂，所以換返主鏡頭
+    if (main && main.deviceId !== cur) { await startCamera(main.deviceId); await listCameras(); }
+  } catch (e) {
+    alert('開唔到相機：' + e.message + '\n要用 HTTPS（例如 GitHub Pages）打開，同埋喺 Safari 設定允許相機。');
+    return;
+  }
+  try { if ('wakeLock' in navigator) S.wakeLock = await navigator.wakeLock.request('screen'); } catch (_) {}
+  // 還原已存相嘅覆蓋格
+  const all = await dbAll();
+  S.count = all.length;
+  S.covered.clear(); S.sharpHist = [];
+  for (const r of all) {
+    const k = `${r.meta.pass}-${r.meta.band}-${r.meta.sector}`;
+    S.covered.set(k, (S.covered.get(k) || 0) + 1);
+    if (r.meta.sharp) S.sharpHist.push(r.meta.sharp);
+    S.pass = Math.max(S.pass, r.meta.pass || 1);
+  }
+  S.sharpHist = S.sharpHist.slice(-15);
+  show('cam');
+  updateHUD();
+  loop();
+}
+
+/* ---------------- 畫面切換 ---------------- */
+function show(id) {
+  for (const s of ['start', 'cam', 'review']) $(s).hidden = (s !== id);
+  if (id === 'cam') resizeOverlay();
+}
+
+/* ---------------- 清晰度：Laplacian variance ---------------- */
+function measureSharpness() {
+  const v = $('v');
+  if (!v.videoWidth) return 0;
+  const W = 240, H = Math.round(240 * v.videoHeight / v.videoWidth);
+  const c = $('small');
+  if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+  const x = c.getContext('2d', { willReadFrequently: true });
+  // 只計中間 60%（件嘢應該喺中間）
+  x.drawImage(v, 0, 0, W, H);
+  const x0 = Math.floor(W * 0.2), y0 = Math.floor(H * 0.2), w = Math.floor(W * 0.6), h = Math.floor(H * 0.6);
+  const d = x.getImageData(x0, y0, w, h).data;
+  const g = new Float32Array(w * h);
+  for (let i = 0, j = 0; j < g.length; i += 4, j++) g[j] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+  let sum = 0, sum2 = 0, n = 0;
+  for (let yy = 1; yy < h - 1; yy++) {
+    for (let xx = 1; xx < w - 1; xx++) {
+      const k = yy * w + xx;
+      const L = g[k - 1] + g[k + 1] + g[k - w] + g[k + w] - 4 * g[k];
+      sum += L; sum2 += L * L; n++;
+    }
+  }
+  const mean = sum / n;
+  return sum2 / n - mean * mean;
+}
+function median(a) { if (!a.length) return 0; const s = [...a].sort((p, q) => p - q); return s[Math.floor(s.length / 2)]; }
+function sharpThreshold() { return S.sharpHist.length >= 5 ? median(S.sharpHist) * 0.55 : 0; }
+
+/* ---------------- 位置：圈 / 格 ---------------- */
+function bandOf(beta) {
+  if (beta == null) return 0;
+  if (beta >= 70) return 0;   // 打直，平視
+  if (beta >= 45) return 1;   // 斜住
+  return 2;                   // 由上俯視
+}
+function sectorOf() {
+  if (S.heading == null || S.heading0 == null) return 0;
+  const rel = (S.heading - S.heading0 + 360) % 360;
+  return Math.floor(rel / S.sectorDeg);
+}
+function nSectors() { return Math.round(360 / S.sectorDeg); }
+function keyNow() { return `${S.pass}-${bandOf(S.beta)}-${sectorOf()}`; }
+
+/* ---------------- 主循環 ---------------- */
+let lastSharpAt = 0;
+function loop() {
+  if ($('cam').hidden) return;
+  const now = performance.now();
+  if (now - lastSharpAt > 150) { S.sharp = measureSharpness(); lastSharpAt = now; }
+  const thr = sharpThreshold();
+  const sharpOK = S.sharp > 0 && S.sharp >= thr;
+  const steady = !S.motionOK || S.rotEMA < 25;
+  const k = keyNow();
+  const isNew = !S.covered.has(k);
+  const sensors = S.orientOK && S.heading != null;
+
+  let msg, col;
+  if (!sensors) { msg = '冇方向感應：撳白掣手動影'; col = 'var(--warn)'; }
+  else if (!steady) { msg = '慢啲…企定部機'; col = 'var(--bad)'; }
+  else if (!sharpOK) { msg = '唔夠清：行近啲、加光、或者等對焦'; col = 'var(--bad)'; }
+  else if (!isNew) { msg = '呢格影咗，繼續慢慢行'; col = 'var(--fg)'; }
+  else { msg = S.auto ? '影緊…' : '可以影：撳白掣'; col = 'var(--ok)'; }
+  $('msg').textContent = msg; $('msg').style.color = col;
+
+  const ref = Math.max(thr / 0.55, S.sharp, 1);
+  $('sharpBar').style.width = Math.min(100, 100 * S.sharp / (ref * 1.2)) + '%';
+  $('sharpBar').style.background = sharpOK ? 'var(--ok)' : 'var(--bad)';
+  $('sharpTxt').textContent = Math.round(S.sharp) + (thr ? ` / 要 ≥ ${Math.round(thr)}` : '');
+  $('bandName').textContent = BANDS[bandOf(S.beta)];
+
+  if (S.auto && sensors && steady && sharpOK && isNew && !S.busy && now - S.lastShot > 600) {
+    capture(false);
+  }
+  drawOverlay();
+  requestAnimationFrame(loop);
+}
+
+/* ---------------- 影相 ---------------- */
+async function capture(manual) {
+  if (S.busy) return;
+  const v = $('v');
+  if (!v.videoWidth) return;
+  S.busy = true;
+  try {
+    const W = v.videoWidth, H = v.videoHeight;
+    const c = $('cap');
+    if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+    c.getContext('2d').drawImage(v, 0, 0, W, H);
+    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', S.jpegQ));
+    if (!blob) throw new Error('toBlob 失敗');
+    // 縮圖
+    const tw = 120, th = Math.round(120 * H / W);
+    const t = document.createElement('canvas'); t.width = tw; t.height = th;
+    t.getContext('2d').drawImage(c, 0, 0, tw, th);
+    const thumb = t.toDataURL('image/jpeg', 0.6);
+
+    const band = bandOf(S.beta), sector = sectorOf();
+    const meta = {
+      w: W, h: H, pass: S.pass, band, sector,
+      heading: S.heading, heading0: S.heading0, beta: S.beta,
+      sharp: Math.round(S.sharp), rot: Math.round(S.rotEMA), manual: !!manual,
+      t: new Date().toISOString(),
+      device: S.track ? S.track.label : '',
+    };
+    await dbAdd({ blob, thumb, meta });
+    const k = `${S.pass}-${band}-${sector}`;
+    S.covered.set(k, (S.covered.get(k) || 0) + 1);
+    S.count++;
+    if (S.sharp > 0) { S.sharpHist.push(S.sharp); if (S.sharpHist.length > 15) S.sharpHist.shift(); }
+    S.lastShot = performance.now();
+    feedback();
+    updateHUD();
+  } catch (e) {
+    $('msg').textContent = '存唔到相：' + e.message;
+  } finally {
+    S.busy = false;
+  }
+}
+
+function feedback() {
+  const f = $('flash');
+  f.style.transition = 'none'; f.style.opacity = '0.45';
+  requestAnimationFrame(() => { f.style.transition = 'opacity .25s'; f.style.opacity = '0'; });
+  if (S.audio) {
+    try {
+      const o = S.audio.createOscillator(), g = S.audio.createGain();
+      o.frequency.value = 1200; g.gain.value = 0.06;
+      o.connect(g); g.connect(S.audio.destination);
+      o.start(); o.stop(S.audio.currentTime + 0.04);
+    } catch (_) {}
+  }
+}
+
+function updateHUD() {
+  $('count').textContent = S.count;
+  $('passNo').textContent = S.pass;
+  const n = nSectors();
+  const parts = [];
+  for (let b = 0; b < 3; b++) {
+    let c = 0;
+    for (let s = 0; s < n; s++) if (S.covered.has(`${S.pass}-${b}-${s}`)) c++;
+    parts.push(`${BANDS[b].slice(0, 1)} ${c}/${n}`);
+  }
+  $('bandCounts').textContent = '覆蓋：' + parts.join(' · ');
+}
+
+/* ---------------- 覆蓋圈 ---------------- */
+function resizeOverlay() {
+  const c = $('ov'), dpr = window.devicePixelRatio || 1;
+  c.width = innerWidth * dpr; c.height = innerHeight * dpr;
+}
+window.addEventListener('resize', resizeOverlay);
+
+function drawOverlay() {
+  const c = $('ov'), x = c.getContext('2d'), dpr = window.devicePixelRatio || 1;
+  x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const W = innerWidth, H = innerHeight;
+  x.clearRect(0, 0, W, H);
+  // 中間取景框
+  x.strokeStyle = 'rgba(255,255,255,.35)'; x.lineWidth = 1;
+  x.strokeRect(W * 0.2, H * 0.2, W * 0.6, H * 0.6);
+
+  const cx = W / 2, cy = H - 190, R = 70;
+  const n = nSectors();
+  const cur = { b: bandOf(S.beta), s: sectorOf() };
+  const rings = [[R * 0.72, R], [R * 0.44, R * 0.70], [R * 0.16, R * 0.42]]; // 外 = 低, 內 = 高
+  x.fillStyle = 'rgba(0,0,0,.45)';
+  x.beginPath(); x.arc(cx, cy, R + 6, 0, Math.PI * 2); x.fill();
+  for (let b = 0; b < 3; b++) {
+    const [r0, r1] = rings[b];
+    for (let s = 0; s < n; s++) {
+      // 0° 喺上面，順時針；圈會跟住你轉，令「而家位置」永遠喺上面
+      const a0 = -Math.PI / 2 + ((s - cur.s) / n) * Math.PI * 2 - Math.PI / n;
+      const a1 = a0 + (Math.PI * 2) / n * 0.92;
+      const done = S.covered.has(`${S.pass}-${b}-${s}`);
+      const here = (b === cur.b && s === cur.s);
+      x.fillStyle = here ? 'rgba(255,204,0,.95)' : done ? 'rgba(61,220,132,.9)' : 'rgba(255,255,255,.16)';
+      x.beginPath();
+      x.arc(cx, cy, r1, a0, a1);
+      x.arc(cx, cy, r0, a1, a0, true);
+      x.closePath(); x.fill();
+    }
+  }
+}
+
+/* ---------------- 按鈕 ---------------- */
+$('btnStart').onclick = onStart;
+$('shutter').onclick = () => capture(true);
+$('btnAuto').onclick = () => {
+  S.auto = !S.auto;
+  $('btnAuto').textContent = S.auto ? '自動：開' : '自動：熄';
+  $('btnAuto').classList.toggle('on', S.auto);
+};
+$('btnPass').onclick = () => {
+  if (!confirm(`開始第 ${S.pass + 1} 輪？\n先將件嘢反轉（底向上），擺返喺同一個位，再撳確定。`)) return;
+  S.pass++; S.heading0 = S.heading; updateHUD();
+};
+$('btnUndo').onclick = async () => {
+  const all = await dbAll();
+  const last = all[all.length - 1];
+  if (!last) return;
+  await dbDel(last.id);
+  const k = `${last.meta.pass}-${last.meta.band}-${last.meta.sector}`;
+  const c = (S.covered.get(k) || 1) - 1;
+  if (c <= 0) S.covered.delete(k); else S.covered.set(k, c);
+  S.count--; updateHUD();
+};
+$('camSel').onchange = async e => {
+  try { await startCamera(e.target.value); } catch (err) { alert(err.message); }
+};
+$('btnDone').onclick = () => openReview();
+$('btnReviewFromStart').onclick = () => openReview();
+$('btnBack').onclick = async () => {
+  if (!S.stream) { await onStart(); return; }
+  show('cam'); loop();
+};
+$('btnClear').onclick = async () => {
+  if (!confirm('刪除全部相？刪咗就冇得返轉頭。')) return;
+  await dbClear();
+  S.covered.clear(); S.count = 0; S.pass = 1; S.sharpHist = []; S.heading0 = S.heading;
+  S.zipFile = null; $('btnShare').hidden = true;
+  await openReview();
+};
+
+/* ---------------- 檢查畫面 ---------------- */
+async function openReview() {
+  show('review');
+  const all = await dbAll();
+  const grid = $('grid');
+  grid.innerHTML = '';
+  let bytes = 0;
+  const perPass = {};
+  all.forEach((r, i) => {
+    bytes += r.blob.size;
+    perPass[r.meta.pass] = (perPass[r.meta.pass] || 0) + 1;
+    const f = document.createElement('figure');
+    f.innerHTML = `<img src="${r.thumb}" alt=""><figcaption>${i + 1} · ${r.meta.pass}${'低中高'[r.meta.band]}</figcaption>`;
+    f.onclick = async () => {
+      if (!confirm(`刪除第 ${i + 1} 張？`)) return;
+      await dbDel(r.id);
+      const k = `${r.meta.pass}-${r.meta.band}-${r.meta.sector}`;
+      const c = (S.covered.get(k) || 1) - 1;
+      if (c <= 0) S.covered.delete(k); else S.covered.set(k, c);
+      S.count = Math.max(0, S.count - 1);
+      openReview();
+    };
+    grid.appendChild(f);
+  });
+  const res = all[0] ? `${all[0].meta.w}×${all[0].meta.h}` : '—';
+  const passTxt = Object.entries(perPass).map(([p, c]) => `第${p}輪 ${c} 張`).join('，') || '—';
+  let tip = '';
+  if (all.length < 40) tip = '⚠️ 少過 40 張，好可能砌唔到。';
+  else if (all.length > 200) tip = '⚠️ 多過 200 張，砌模會好慢，可以刪走啲重複嘅。';
+  $('stats').innerHTML = `共 <b>${all.length}</b> 張 · ${passTxt}<br>解像度 ${res} · 約 ${(bytes / 1048576).toFixed(0)} MB ${tip}`;
+  S.zipFile = null; $('btnShare').hidden = true; $('exportState').textContent = '';
+}
+
+/* ---------------- ZIP（store 模式，唔壓縮；JPEG 本身已壓縮） ---------------- */
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1); t[n] = c >>> 0; }
+  return t;
+})();
+function crc32(u8) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < u8.length; i++) c = CRC_TABLE[(c ^ u8[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+function dosDateTime(d) {
+  return {
+    time: (d.getHours() << 11) | (d.getMinutes() << 5) | (Math.floor(d.getSeconds() / 2)),
+    date: ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate(),
+  };
+}
+async function makeZip(entries, onProgress) {
+  const enc = new TextEncoder();
+  const { time, date } = dosDateTime(new Date());
+  const parts = [], central = [];
+  let offset = 0, i = 0;
+  for (const e of entries) {
+    const data = new Uint8Array(await e.blob.arrayBuffer());
+    const crc = crc32(data), size = data.length;
+    const name = enc.encode(e.name);
+    if (offset + 30 + name.length + size > 0xFFFFFFFF) throw new Error('ZIP 超過 4 GB，請分開兩次匯出');
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true);
+    lh.setUint16(8, 0, true); lh.setUint16(10, time, true); lh.setUint16(12, date, true);
+    lh.setUint32(14, crc, true); lh.setUint32(18, size, true); lh.setUint32(22, size, true);
+    lh.setUint16(26, name.length, true); lh.setUint16(28, 0, true);
+    parts.push(lh.buffer, name, e.blob);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true);
+    ch.setUint16(8, 0x0800, true); ch.setUint16(10, 0, true); ch.setUint16(12, time, true); ch.setUint16(14, date, true);
+    ch.setUint32(16, crc, true); ch.setUint32(20, size, true); ch.setUint32(24, size, true);
+    ch.setUint16(28, name.length, true); ch.setUint16(30, 0, true); ch.setUint16(32, 0, true);
+    ch.setUint16(34, 0, true); ch.setUint16(36, 0, true); ch.setUint32(38, 0, true); ch.setUint32(42, offset, true);
+    central.push(ch.buffer, name);
+    offset += 30 + name.length + size;
+    i++;
+    if (onProgress) onProgress(i, entries.length);
+  }
+  const cdSize = central.reduce((s, p) => s + p.byteLength, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(4, 0, true); end.setUint16(6, 0, true);
+  end.setUint16(8, entries.length, true); end.setUint16(10, entries.length, true);
+  end.setUint32(12, cdSize, true); end.setUint32(16, offset, true); end.setUint16(20, 0, true);
+  return new Blob([...parts, ...central, end.buffer], { type: 'application/zip' });
+}
+
+function stamp(d = new Date()) {
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`;
+}
+
+$('btnZip').onclick = async () => {
+  const all = await dbAll();
+  if (!all.length) { alert('未有相'); return; }
+  $('btnZip').disabled = true;
+  try {
+    const entries = all.map((r, i) => ({ name: `images/IMG_${String(i + 1).padStart(4, '0')}.jpg`, blob: r.blob, meta: r.meta }));
+    const ref = parseFloat($('refLen').value);
+    const meta = {
+      app: 'scan3d-capture v1',
+      created: new Date().toISOString(),
+      userAgent: navigator.userAgent,
+      sectorDeg: S.sectorDeg,
+      refLength_mm: isFinite(ref) ? ref : null,
+      note: '相片由影片 frame 擷取，冇 EXIF；COLMAP 用 single_camera 自己估焦距。',
+      shots: entries.map(e => ({ file: e.name, ...e.meta })),
+    };
+    entries.push({ name: 'meta.json', blob: new Blob([JSON.stringify(meta, null, 2)], { type: 'application/json' }) });
+    const zip = await makeZip(entries, (i, n) => { $('exportState').textContent = `整緊 ZIP… ${i}/${n}`; });
+    S.zipFile = new File([zip], `scan_${stamp()}.zip`, { type: 'application/zip' });
+    $('exportState').textContent = `ZIP 整好：${S.zipFile.name}（${(zip.size / 1048576).toFixed(0)} MB）。撳下面個掣分享或者儲存。`;
+    $('btnShare').hidden = false;
+  } catch (e) {
+    $('exportState').textContent = '整唔到 ZIP：' + e.message;
+  } finally {
+    $('btnZip').disabled = false;
+  }
+};
+
+// 分享要喺 user 撳掣嗰下觸發（iOS 規定），所以同整 ZIP 分開兩個掣
+$('btnShare').onclick = async () => {
+  const f = S.zipFile;
+  if (!f) return;
+  if (navigator.canShare && navigator.canShare({ files: [f] })) {
+    try { await navigator.share({ files: [f], title: f.name }); return; }
+    catch (e) { if (e.name === 'AbortError') return; }
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(f); a.download = f.name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+};
+
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible' && S.stream && !$('cam').hidden) {
+    try { if ('wakeLock' in navigator) S.wakeLock = await navigator.wakeLock.request('screen'); } catch (_) {}
+  }
+});
+
+init();
+</script>
+</body>
+</html>
